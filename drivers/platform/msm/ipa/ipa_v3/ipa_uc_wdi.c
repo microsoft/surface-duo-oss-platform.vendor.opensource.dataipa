@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #include "ipa_i.h"
@@ -8,8 +8,6 @@
 #include <linux/delay.h>
 #include <linux/mm.h>
 #include "ipa_qmi_service.h"
-
-#define IPA_HOLB_TMR_DIS 0x0
 
 #define IPA_HW_INTERFACE_WDI_VERSION 0x0001
 #define IPA_HW_WDI_RX_MBOX_START_INDEX 48
@@ -2078,6 +2076,7 @@ dma_alloc_fail:
 fail:
 	return result;
 }
+EXPORT_SYMBOL(ipa3_connect_wdi_pipe);
 
 int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2114,7 +2113,8 @@ int ipa3_disconnect_gsi_wdi_pipe(u32 clnt_hdl)
 	else
 		IPADBG("uc_wdi_ctx.stats_notify already null\n");
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
-		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7)
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11)
 		ipa3_uc_debug_stats_dealloc(IPA_HW_PROTOCOL_WDI);
 	IPADBG("client (ep: %d) disconnected\n", clnt_hdl);
 
@@ -2190,6 +2190,7 @@ uc_timeout:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
 }
+EXPORT_SYMBOL(ipa3_disconnect_wdi_pipe);
 
 int ipa3_enable_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2355,6 +2356,7 @@ uc_timeout:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
 }
+EXPORT_SYMBOL(ipa3_enable_wdi_pipe);
 
 /**
  * ipa3_disable_wdi_pipe() - WDI client disable
@@ -2461,6 +2463,7 @@ uc_timeout:
 	IPA_ACTIVE_CLIENTS_DEC_EP(ipa3_get_client_mapping(clnt_hdl));
 	return result;
 }
+EXPORT_SYMBOL(ipa3_disable_wdi_pipe);
 
 int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2506,7 +2509,8 @@ int ipa3_resume_gsi_wdi_pipe(u32 clnt_hdl)
 	pcmd_t = &ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI];
 	/* start uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
-		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7) {
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11) {
 		if (IPA_CLIENT_IS_PROD(ep->client)) {
 			pcmd_t->ch_id_info[0].ch_id
 				= ep->gsi_chan_hdl;
@@ -2603,6 +2607,7 @@ int ipa3_resume_wdi_pipe(u32 clnt_hdl)
 uc_timeout:
 	return result;
 }
+EXPORT_SYMBOL(ipa3_resume_wdi_pipe);
 
 int ipa3_suspend_gsi_wdi_pipe(u32 clnt_hdl)
 {
@@ -2631,23 +2636,25 @@ int ipa3_suspend_gsi_wdi_pipe(u32 clnt_hdl)
 	}
 	if (ep->valid) {
 		IPADBG("suspended pipe %d\n", ipa_ep_idx);
-		source_pipe_bitmask = 1 <<
-			ipa3_get_ep_mapping(ep->client);
-		res = ipa3_enable_force_clear(clnt_hdl,
-				false, source_pipe_bitmask);
-		if (res) {
-			/*
-			 * assuming here modem SSR, AP can remove
-			 * the delay in this case
-			 */
-			IPAERR("failed to force clear %d\n", res);
-			IPAERR("remove delay from SCND reg\n");
-			ep_ctrl_scnd.endp_delay = false;
-			ipahal_write_reg_n_fields(
-					IPA_ENDP_INIT_CTRL_SCND_n, clnt_hdl,
-					&ep_ctrl_scnd);
-		} else {
-			disable_force_clear = true;
+		if (IPA_CLIENT_IS_PROD(ep->client)) {
+			source_pipe_bitmask = 1 <<
+				ipa3_get_ep_mapping(ep->client);
+			res = ipa3_enable_force_clear(clnt_hdl,
+					false, source_pipe_bitmask);
+			if (res) {
+				/*
+				 * assuming here modem SSR, AP can remove
+				 * the delay in this case
+				 */
+				IPAERR("failed to force clear %d\n", res);
+				IPAERR("remove delay from SCND reg\n");
+				ep_ctrl_scnd.endp_delay = false;
+				ipahal_write_reg_n_fields(
+						IPA_ENDP_INIT_CTRL_SCND_n, clnt_hdl,
+						&ep_ctrl_scnd);
+			} else {
+				disable_force_clear = true;
+			}
 		}
 retry_gsi_stop:
 		res = ipa3_stop_gsi_channel(ipa_ep_idx);
@@ -2683,7 +2690,8 @@ retry_gsi_stop:
 	pcmd_t = &ipa3_ctx->gsi_info[IPA_HW_PROTOCOL_WDI];
 	/* stop uC gsi dbg stats monitor */
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5 &&
-		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7) {
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_7 &&
+		ipa3_ctx->ipa_hw_type != IPA_HW_v4_11) {
 		if (IPA_CLIENT_IS_PROD(ep->client)) {
 			pcmd_t->ch_id_info[0].ch_id
 				= 0xff;
@@ -2834,6 +2842,7 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
 uc_timeout:
 	return result;
 }
+EXPORT_SYMBOL(ipa3_suspend_wdi_pipe);
 
 /**
  * ipa_broadcast_wdi_quota_reach_ind() - quota reach
@@ -2845,7 +2854,7 @@ uc_timeout:
 int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid,
 	uint64_t num_bytes)
 {
-	IPAERR("Quota reached indication on fid(%d) Mbytes(%lu)\n",
+	IPAERR_RL("Quota reached indication on fid(%d) Mbytes(%lu)\n",
 			  fid, (unsigned long)num_bytes);
 	ipa3_broadcast_quota_reach_ind(0, IPA_UPSTEAM_WLAN);
 	return 0;
@@ -2968,6 +2977,7 @@ int ipa3_uc_reg_rdyCB(
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa3_uc_reg_rdyCB);
 
 /**
  * ipa3_uc_dereg_rdyCB() - To de-register uC ready CB
@@ -3045,17 +3055,17 @@ int ipa3_create_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)
 	int prot = IOMMU_READ | IOMMU_WRITE;
 
 	if (!info) {
-		IPAERR("info = %pK\n", info);
+		IPAERR_RL("info = %pK\n", info);
 		return -EINVAL;
 	}
 
 	if (!cb->valid) {
-		IPAERR("No SMMU CB setup\n");
+		IPAERR_RL("No SMMU CB setup\n");
 		return -EINVAL;
 	}
 
 	if (ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN]) {
-		IPAERR("IPA SMMU not enabled\n");
+		IPAERR_RL("IPA SMMU not enabled\n");
 		return -EINVAL;
 	}
 
@@ -3072,6 +3082,7 @@ int ipa3_create_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)
 
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_create_wdi_mapping);
 
 int ipa3_release_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)
 {
@@ -3100,3 +3111,4 @@ int ipa3_release_wdi_mapping(u32 num_buffers, struct ipa_wdi_buffer_info *info)
 
 	return ret;
 }
+EXPORT_SYMBOL(ipa3_release_wdi_mapping);

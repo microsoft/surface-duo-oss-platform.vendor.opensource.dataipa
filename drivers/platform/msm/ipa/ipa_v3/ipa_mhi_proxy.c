@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/dma-mapping.h>
@@ -10,7 +10,7 @@
 #include <linux/module.h>
 #include <linux/mhi.h>
 #include "ipa_qmi_service.h"
-#include "../ipa_common_i.h"
+#include "ipa_common_i.h"
 #include "ipa_i.h"
 
 #define IMP_DRV_NAME "ipa_mhi_proxy"
@@ -19,9 +19,9 @@
 	do { \
 		pr_debug(IMP_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IMP_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IMP_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -29,7 +29,7 @@
 	do { \
 		pr_debug(IMP_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IMP_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -38,9 +38,9 @@
 	do { \
 		pr_err(IMP_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 				IMP_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				IMP_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 

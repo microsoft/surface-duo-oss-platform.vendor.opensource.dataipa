@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _IPAHAL_I_H_
 #define _IPAHAL_I_H_
 
 #include <linux/ipa.h>
-#include "../../ipa_common_i.h"
+#include "ipa_common_i.h"
 
 #define IPAHAL_DRV_NAME "ipahal"
 
@@ -15,9 +15,9 @@
 	do { \
 		pr_debug(IPAHAL_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
 			## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -25,7 +25,7 @@
 	do { \
 		pr_debug(IPAHAL_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
 			## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -33,9 +33,9 @@
 	do { \
 		pr_err(IPAHAL_DRV_NAME " %s:%d " fmt, __func__, __LINE__, \
 			## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -43,9 +43,9 @@
 		do { \
 			pr_err_ratelimited_ipa(IPAHAL_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-			IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 				IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
-			IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+			IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 		} while (0)
 

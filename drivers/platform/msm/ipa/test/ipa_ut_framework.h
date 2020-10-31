@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _IPA_UT_FRAMEWORK_H_
 #define _IPA_UT_FRAMEWORK_H_
 
 #include <linux/kernel.h>
-#include "../ipa_common_i.h"
+#include "ipa_common_i.h"
 #include "ipa_ut_i.h"
 
 #define IPA_UT_DRV_NAME "ipa_ut"
@@ -16,9 +16,9 @@
 	do { \
 		pr_debug(IPA_UT_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -26,7 +26,7 @@
 	do { \
 		pr_debug(IPA_UT_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -34,9 +34,9 @@
 	do { \
 		pr_err(IPA_UT_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -44,9 +44,9 @@
 	do { \
 		pr_info(IPA_UT_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_UT_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 

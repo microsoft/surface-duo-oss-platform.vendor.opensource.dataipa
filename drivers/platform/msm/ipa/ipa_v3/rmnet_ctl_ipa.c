@@ -17,6 +17,13 @@ enum ipa_rmnet_ctl_state {
 	IPA_RMNET_CTL_START, /* rmnet_ctl register + pipe setup */
 };
 
+#define IPA_RMNET_CTL_PIPE_NOT_READY (0)
+#define IPA_RMNET_CTL_PIPE_TX_READY (1 << 0)
+#define IPA_RMNET_CTL_PIPE_RX_READY (1 << 1)
+#define IPA_RMNET_CTL_PIPE_READY_ALL (IPA_RMNET_CTL_PIPE_TX_READY | \
+	IPA_RMNET_CTL_PIPE_RX_READY) /* TX Ready + RX ready */
+
+
 #define IPA_WWAN_CONS_DESC_FIFO_SZ 256
 #define RMNET_CTRL_QUEUE_MAX (2 * IPA_WWAN_CONS_DESC_FIFO_SZ)
 
@@ -44,6 +51,7 @@ struct ipa3_rmnet_ctl_stats {
 struct rmnet_ctl_ipa3_context {
 	struct ipa3_rmnet_ctl_stats stats;
 	enum ipa_rmnet_ctl_state state;
+	u8 pipe_state;
 	struct ipa_sys_connect_params apps_to_ipa_low_lat_ep_cfg;
 	struct ipa_sys_connect_params ipa_to_apps_low_lat_ep_cfg;
 	u32 apps_to_ipa3_low_lat_hdl;
@@ -105,6 +113,7 @@ int ipa3_rmnet_ctl_init(void)
 	rmnet_ctl_ipa3_ctx->state = IPA_RMNET_CTL_NOT_REG;
 	mutex_init(&rmnet_ctl_ipa3_ctx->lock);
 	spin_lock_init(&rmnet_ctl_ipa3_ctx->tx_lock);
+	rmnet_ctl_ipa3_ctx->pipe_state = IPA_RMNET_CTL_PIPE_NOT_READY;
 	return 0;
 }
 
@@ -264,14 +273,18 @@ int ipa3_setup_apps_low_lat_cons_pipe(void)
 		IPADBG("Low lat pipe setup fails\n");
 		return ret;
 	}
+	rmnet_ctl_ipa3_ctx->pipe_state |= IPA_RMNET_CTL_PIPE_RX_READY;
 	if (rmnet_ctl_ipa3_ctx->cb_info.ready_cb) {
 		(*(rmnet_ctl_ipa3_ctx->cb_info.ready_cb))
 			(rmnet_ctl_ipa3_ctx->cb_info.ready_cb_user_data);
-	} else {
-		IPAERR("invalid ready_cb\n");
-		return -EFAULT;
 	}
-
+	/*
+	 * if no ready_cb yet, which means rmnet_ctl not
+	 * register to IPA, we will move state to pipe
+	 * ready and will wait for register event
+	 * coming and move to start state.
+	 * The ready_cb will called from regsiter itself.
+	 */
 	mutex_lock(&rmnet_ctl_ipa3_ctx->lock);
 	if (rmnet_ctl_ipa3_ctx->state == IPA_RMNET_CTL_NOT_REG)
 		rmnet_ctl_ipa3_ctx->state = IPA_RMNET_CTL_PIPE_READY;
@@ -328,6 +341,7 @@ int ipa3_setup_apps_low_lat_prod_pipe(void)
 		IPAERR("failed to config apps low lat prod pipe\n");
 		return ret;
 	}
+	rmnet_ctl_ipa3_ctx->pipe_state |= IPA_RMNET_CTL_PIPE_TX_READY;
 	return 0;
 }
 
@@ -336,48 +350,48 @@ int ipa3_teardown_apps_low_lat_pipes(void)
 	int ret = 0;
 
 	if (rmnet_ctl_ipa3_ctx->state != IPA_RMNET_CTL_PIPE_READY &&
-		rmnet_ctl_ipa3_ctx->state != IPA_RMNET_CTL_START) {
+		rmnet_ctl_ipa3_ctx->state != IPA_RMNET_CTL_START &&
+		rmnet_ctl_ipa3_ctx->pipe_state == IPA_RMNET_CTL_PIPE_NOT_READY) {
 		IPAERR("rmnet_ctl in bad state %d\n",
 			rmnet_ctl_ipa3_ctx->state);
 		return -EFAULT;
 	}
-	if (rmnet_ctl_ipa3_ctx->cb_info.stop_cb) {
-		(*(rmnet_ctl_ipa3_ctx->cb_info.stop_cb))
-			(rmnet_ctl_ipa3_ctx->cb_info.stop_cb_user_data);
-	} else {
-		IPAERR("Invalid stop_cb\n");
-		return -EFAULT;
+	if (rmnet_ctl_ipa3_ctx->pipe_state == IPA_RMNET_CTL_PIPE_READY ||
+		rmnet_ctl_ipa3_ctx->state == IPA_RMNET_CTL_START) {
+		if (rmnet_ctl_ipa3_ctx->cb_info.stop_cb) {
+			(*(rmnet_ctl_ipa3_ctx->cb_info.stop_cb))
+				(rmnet_ctl_ipa3_ctx->cb_info.stop_cb_user_data);
+		} else {
+			IPAERR("Invalid stop_cb\n");
+			return -EFAULT;
+		}
+		if (rmnet_ctl_ipa3_ctx->state == IPA_RMNET_CTL_PIPE_READY)
+			rmnet_ctl_ipa3_ctx->state = IPA_RMNET_CTL_NOT_REG;
+		else
+			rmnet_ctl_ipa3_ctx->state = IPA_RMNET_CTL_REGD;
 	}
-	if (rmnet_ctl_ipa3_ctx->state == IPA_RMNET_CTL_PIPE_READY)
-		rmnet_ctl_ipa3_ctx->state = IPA_RMNET_CTL_NOT_REG;
-	else
-		rmnet_ctl_ipa3_ctx->state = IPA_RMNET_CTL_REGD;
-	ret = ipa3_teardown_sys_pipe(
-		rmnet_ctl_ipa3_ctx->ipa3_to_apps_low_lat_hdl);
-	if (ret < 0) {
-		IPAERR("Failed to teardown APPS->IPA low lat pipe\n");
-		return ret;
+	if (rmnet_ctl_ipa3_ctx->pipe_state & IPA_RMNET_CTL_PIPE_RX_READY) {
+		ret = ipa3_teardown_sys_pipe(
+			rmnet_ctl_ipa3_ctx->ipa3_to_apps_low_lat_hdl);
+		if (ret < 0) {
+			IPAERR("Failed to teardown APPS->IPA low lat pipe\n");
+			return ret;
+		}
+		rmnet_ctl_ipa3_ctx->ipa3_to_apps_low_lat_hdl = -1;
+		rmnet_ctl_ipa3_ctx->pipe_state &= ~IPA_RMNET_CTL_PIPE_RX_READY;
 	}
-	rmnet_ctl_ipa3_ctx->ipa3_to_apps_low_lat_hdl = -1;
-	ret = ipa3_teardown_sys_pipe(
-		rmnet_ctl_ipa3_ctx->apps_to_ipa3_low_lat_hdl);
-	if (ret < 0) {
-		return ret;
-		IPAERR("Failed to teardown APPS->IPA low lat pipe\n");
+
+	if (rmnet_ctl_ipa3_ctx->pipe_state & IPA_RMNET_CTL_PIPE_TX_READY) {
+		ret = ipa3_teardown_sys_pipe(
+			rmnet_ctl_ipa3_ctx->apps_to_ipa3_low_lat_hdl);
+		if (ret < 0) {
+			return ret;
+			IPAERR("Failed to teardown APPS->IPA low lat pipe\n");
+		}
+		rmnet_ctl_ipa3_ctx->apps_to_ipa3_low_lat_hdl = -1;
+		rmnet_ctl_ipa3_ctx->pipe_state &= ~IPA_RMNET_CTL_PIPE_TX_READY;
 	}
-	rmnet_ctl_ipa3_ctx->apps_to_ipa3_low_lat_hdl = -1;
 	return ret;
-}
-
-void ipa3_rmnet_ctl_ready_notifier(void)
-{
-	if (rmnet_ctl_ipa3_ctx->cb_info.ready_cb) {
-		(*(rmnet_ctl_ipa3_ctx->cb_info.ready_cb))
-		(rmnet_ctl_ipa3_ctx->cb_info.ready_cb_user_data);
-	} else
-		IPAERR("invalid ready_cb\n");
-
-	IPADBG("low lat pipes are ready\n");
 }
 
 int ipa3_rmnet_ctl_xmit(struct sk_buff *skb)
@@ -497,7 +511,7 @@ static void rmnet_ctl_wakeup_ipa(struct work_struct *work)
 	int ret;
 	unsigned long flags;
 	struct sk_buff *skb;
-	int len;
+	int len = 0;
 
 	/* calling from WQ */
 	ret = ipa_pm_activate_sync(rmnet_ctl_ipa3_ctx->rmnet_ctl_pm_hdl);
@@ -514,6 +528,8 @@ static void rmnet_ctl_wakeup_ipa(struct work_struct *work)
 	/* dequeue the skb */
 	while (skb_queue_len(&rmnet_ctl_ipa3_ctx->tx_queue) > 0) {
 		skb = skb_dequeue(&rmnet_ctl_ipa3_ctx->tx_queue);
+		if (skb == NULL)
+			continue;
 		len = skb->len;
 		spin_unlock_irqrestore(&rmnet_ctl_ipa3_ctx->tx_lock, flags);
 		/*

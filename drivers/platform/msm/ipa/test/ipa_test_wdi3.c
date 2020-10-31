@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2018 - 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018 - 2020, The Linux Foundation. All rights reserved.
  */
 
 #include "ipa_ut_framework.h"
 #include <linux/ipa_wdi3.h>
 #include <linux/ipa.h>
 #include <linux/delay.h>
-#include "../ipa_v3/ipa_i.h"
+#include "ipa_i.h"
 
 #define NUM_TX_BUFS 10
 #define NUM_RX_BUFS 10
@@ -812,7 +812,7 @@ static int ipa_wdi3_test_single_transfer(void *priv)
 
 	ep_cfg.seq.set_dynamic = true;
 
-	ipa_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
+	ipa3_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
 
 	if (ipa_wdi3_send_one_packet()) {
 		IPA_UT_ERR("fail to transfer packet.\n");
@@ -1014,7 +1014,7 @@ static int ipa_wdi3_test_multi_transfer(void *priv)
 
 	ep_cfg.seq.set_dynamic = true;
 
-	ipa_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
+	ipa3_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
 
 	if (ipa_wdi3_send_multi_packet()) {
 		IPA_UT_ERR("fail to transfer packet.\n");
@@ -1058,7 +1058,7 @@ static int ipa_wdi3_test_multi_transfer2(void *priv)
 
 	ep_cfg.seq.set_dynamic = true;
 
-	ipa_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
+	ipa3_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
 
 	IPA_UT_DBG("-----start transfer 32 pkt----\n");
 	for (i = 0; i < 32; i++) {
@@ -1106,7 +1106,7 @@ static int ipa_wdi3_test_multi_transfer3(void *priv)
 
 	ep_cfg.seq.set_dynamic = true;
 
-	ipa_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
+	ipa3_cfg_ep(ipa_get_ep_mapping(IPA_CLIENT_WLAN2_PROD), &ep_cfg);
 
 	IPA_UT_DBG("-----start transfer 256 pkt----\n");
 	for (i = 0; i < 32; i++) {

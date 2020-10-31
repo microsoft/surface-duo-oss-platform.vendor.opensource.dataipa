@@ -6,8 +6,9 @@
 #include <linux/ipa_uc_offload.h>
 #include <linux/msm_ipa.h>
 #include <linux/if_vlan.h>
-#include "../ipa_common_i.h"
-#include "../ipa_v3/ipa_pm.h"
+#include "ipa_common_i.h"
+#include "ipa_pm.h"
+#include <linux/ipa_fmwk.h>
 
 #define IPA_NTN_DMA_POOL_ALIGNMENT 8
 #define OFFLOAD_DRV_NAME "ipa_uc_offload"
@@ -15,9 +16,9 @@
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -25,7 +26,7 @@
 	do { \
 		pr_debug(OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -33,9 +34,9 @@
 	do { \
 		pr_err(OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -43,9 +44,9 @@
 	do { \
 		pr_info(OFFLOAD_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			OFFLOAD_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -99,7 +100,7 @@ static int ipa_commit_partial_hdr(
 		hdr->hdr[i].eth2_ofst = hdr_info[i].dst_mac_addr_offset;
 	}
 
-	if (ipa_add_hdr(hdr)) {
+	if (ipa3_add_hdr(hdr)) {
 		IPA_UC_OFFLOAD_ERR("fail to add partial headers\n");
 		return -EFAULT;
 	}
@@ -264,7 +265,7 @@ static int ipa_uc_offload_ntn_reg_intf(
 		rx_prop[1].attrib.meta_data_mask = inp->meta_data_mask;
 	}
 
-	if (ipa_register_intf(inp->netdev_name, &tx, &rx)) {
+	if (ipa3_register_intf(inp->netdev_name, &tx, &rx)) {
 		IPA_UC_OFFLOAD_ERR("fail to add interface prop\n");
 		memset(ntn_ctx, 0, sizeof(*ntn_ctx));
 		ret = -EFAULT;
@@ -286,7 +287,7 @@ fail_alloc:
 	return ret;
 }
 
-int ipa_uc_offload_reg_intf(
+static int ipa_uc_offload_reg_intf_internal(
 	struct ipa_uc_offload_intf_params *inp,
 	struct ipa_uc_offload_out_params *outp)
 {
@@ -329,7 +330,6 @@ int ipa_uc_offload_reg_intf(
 
 	return ret;
 }
-EXPORT_SYMBOL(ipa_uc_offload_reg_intf);
 
 
 static int ipa_uc_ntn_alloc_conn_smmu_info(struct ipa_ntn_setup_info *dest,
@@ -408,7 +408,7 @@ int ipa_uc_ntn_conn_pipes(struct ipa_ntn_conn_in_params *inp,
 	}
 
 	ntn_ctx->state = IPA_UC_OFFLOAD_STATE_UP;
-	result = ipa_setup_uc_ntn_pipes(inp, ntn_ctx->notify,
+	result = ipa3_setup_uc_ntn_pipes(inp, ntn_ctx->notify,
 		ntn_ctx->priv, ntn_ctx->hdr_len, outp);
 	if (result) {
 		IPA_UC_OFFLOAD_ERR("fail to setup uc offload pipes: %d\n",
@@ -438,7 +438,7 @@ fail:
 	return result;
 }
 
-int ipa_uc_offload_conn_pipes(struct ipa_uc_offload_conn_in_params *inp,
+static int ipa_uc_offload_conn_pipes_internal(struct ipa_uc_offload_conn_in_params *inp,
 			struct ipa_uc_offload_conn_out_params *outp)
 {
 	int ret = 0;
@@ -467,6 +467,10 @@ int ipa_uc_offload_conn_pipes(struct ipa_uc_offload_conn_in_params *inp,
 		return -EPERM;
 	}
 
+	/*Store the connection info, required during disconnect pipe */
+	memcpy(&offload_ctx->conn, &inp->u.ntn,
+			sizeof(struct ipa_ntn_conn_in_params));
+
 	switch (offload_ctx->proto) {
 	case IPA_UC_NTN:
 		ret = ipa_uc_ntn_conn_pipes(&inp->u.ntn, &outp->u.ntn,
@@ -481,7 +485,6 @@ int ipa_uc_offload_conn_pipes(struct ipa_uc_offload_conn_in_params *inp,
 
 	return ret;
 }
-EXPORT_SYMBOL(ipa_uc_offload_conn_pipes);
 
 static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 {
@@ -503,7 +506,7 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 
 	ipa_ep_idx_ul = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
 	ipa_ep_idx_dl = ipa_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
-	ret = ipa_tear_down_uc_offload_pipes(ipa_ep_idx_ul, ipa_ep_idx_dl,
+	ret = ipa3_tear_down_uc_offload_pipes(ipa_ep_idx_ul, ipa_ep_idx_dl,
 		&ntn_ctx->conn);
 	if (ret) {
 		IPA_UC_OFFLOAD_ERR("fail to tear down ntn offload pipes, %d\n",
@@ -518,7 +521,7 @@ static int ipa_uc_ntn_disconn_pipes(struct ipa_uc_offload_ctx *ntn_ctx)
 	return ret;
 }
 
-int ipa_uc_offload_disconn_pipes(u32 clnt_hdl)
+static int ipa_uc_offload_disconn_pipes_internal(u32 clnt_hdl)
 {
 	struct ipa_uc_offload_ctx *offload_ctx;
 	int ret = 0;
@@ -553,7 +556,6 @@ int ipa_uc_offload_disconn_pipes(u32 clnt_hdl)
 
 	return ret;
 }
-EXPORT_SYMBOL(ipa_uc_offload_disconn_pipes);
 
 static int ipa_uc_ntn_cleanup(struct ipa_uc_offload_ctx *ntn_ctx)
 {
@@ -572,13 +574,13 @@ static int ipa_uc_ntn_cleanup(struct ipa_uc_offload_ctx *ntn_ctx)
 	hdr->hdl[0].hdl = ntn_ctx->partial_hdr_hdl[0];
 	hdr->hdl[1].hdl = ntn_ctx->partial_hdr_hdl[1];
 
-	if (ipa_del_hdr(hdr)) {
+	if (ipa3_del_hdr(hdr)) {
 		IPA_UC_OFFLOAD_ERR("fail to delete partial header\n");
 		result = -EFAULT;
 		goto fail;
 	}
 
-	if (ipa_deregister_intf(ntn_ctx->netdev_name)) {
+	if (ipa3_deregister_intf(ntn_ctx->netdev_name)) {
 		IPA_UC_OFFLOAD_ERR("fail to delete interface prop\n");
 		result = -EFAULT;
 		goto fail;
@@ -589,7 +591,7 @@ fail:
 	return result;
 }
 
-int ipa_uc_offload_cleanup(u32 clnt_hdl)
+static int ipa_uc_offload_cleanup_internal(u32 clnt_hdl)
 {
 	struct ipa_uc_offload_ctx *offload_ctx;
 	int ret = 0;
@@ -630,7 +632,6 @@ int ipa_uc_offload_cleanup(u32 clnt_hdl)
 
 	return ret;
 }
-EXPORT_SYMBOL(ipa_uc_offload_cleanup);
 
 /**
  * ipa_uc_offload_uc_rdyCB() - To register uC ready CB if uC not
@@ -641,7 +642,7 @@ EXPORT_SYMBOL(ipa_uc_offload_cleanup);
  * Returns:	0 on success, negative on failure
  *
  */
-int ipa_uc_offload_reg_rdyCB(struct ipa_uc_ready_params *inp)
+int ipa_uc_offload_reg_rdyCB_internal(struct ipa_uc_ready_params *inp)
 {
 	int ret = 0;
 
@@ -651,7 +652,7 @@ int ipa_uc_offload_reg_rdyCB(struct ipa_uc_ready_params *inp)
 	}
 
 	if (inp->proto == IPA_UC_NTN)
-		ret = ipa_ntn_uc_reg_rdyCB(inp->notify, inp->priv);
+		ret = ipa3_ntn_uc_reg_rdyCB(inp->notify, inp->priv);
 
 	if (ret == -EEXIST) {
 		inp->is_uC_ready = true;
@@ -661,11 +662,47 @@ int ipa_uc_offload_reg_rdyCB(struct ipa_uc_ready_params *inp)
 
 	return ret;
 }
-EXPORT_SYMBOL(ipa_uc_offload_reg_rdyCB);
 
-void ipa_uc_offload_dereg_rdyCB(enum ipa_uc_offload_proto proto)
+void ipa_uc_offload_dereg_rdyCB_internal(enum ipa_uc_offload_proto proto)
 {
 	if (proto == IPA_UC_NTN)
-		ipa_ntn_uc_dereg_rdyCB();
+		ipa3_ntn_uc_dereg_rdyCB();
 }
-EXPORT_SYMBOL(ipa_uc_offload_dereg_rdyCB);
+
+int ipa_set_perf_profile_internal(struct ipa_perf_profile *profile)
+{
+	if (!profile) {
+		IPA_UC_OFFLOAD_ERR("Invalid input\n");
+		return -EINVAL;
+	}
+
+	if (profile->client != IPA_CLIENT_ETHERNET_PROD &&
+		profile->client != IPA_CLIENT_ETHERNET_CONS) {
+		IPA_UC_OFFLOAD_ERR("not supported\n");
+		return -EINVAL;
+	}
+
+	IPA_UC_OFFLOAD_DBG("setting throughput to %d\n",
+		profile->max_supported_bw_mbps);
+
+	return ipa_pm_set_throughput(
+		ipa_uc_offload_ctx[IPA_UC_NTN]->pm_hdl,
+		profile->max_supported_bw_mbps);
+}
+
+void ipa_uc_offload_register(void)
+{
+	struct ipa_uc_offload_data funcs;
+
+	funcs.ipa_uc_offload_reg_intf = ipa_uc_offload_reg_intf_internal;
+	funcs.ipa_uc_offload_cleanup = ipa_uc_offload_cleanup_internal;
+	funcs.ipa_uc_offload_conn_pipes = ipa_uc_offload_conn_pipes_internal;
+	funcs.ipa_uc_offload_disconn_pipes =
+		ipa_uc_offload_disconn_pipes_internal;
+	funcs.ipa_set_perf_profile = ipa_set_perf_profile_internal;
+	funcs.ipa_uc_offload_reg_rdyCB = ipa_uc_offload_reg_rdyCB_internal;
+	funcs.ipa_uc_offload_dereg_rdyCB = ipa_uc_offload_dereg_rdyCB_internal;
+
+	if (ipa_fmwk_register_uc_offload(&funcs))
+		pr_err("failed to register uc_offload APIs\n");
+}

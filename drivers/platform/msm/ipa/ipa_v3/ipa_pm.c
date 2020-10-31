@@ -14,25 +14,34 @@
 	do { \
 		pr_debug(IPA_PM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 #define IPA_PM_DBG_LOW(fmt, args...) \
 	do { \
 		pr_debug(IPA_PM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 #define IPA_PM_ERR(fmt, args...) \
 	do { \
 		pr_err(IPA_PM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
+			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+	} while (0)
+#define IPA_PM_ERR_RL(fmt, args...) \
+	do { \
+		pr_err_ratelimited_ipa(IPA_PM_DRV_NAME " %s:%d " fmt, \
+			__func__, __LINE__, ## args); \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
+			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_PM_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 #define IPA_PM_DBG_STATE(hdl, name, state) \
@@ -435,8 +444,7 @@ static void activate_work_func(struct work_struct *work)
 		client->callback(client->callback_params,
 			IPA_PM_CLIENT_ACTIVATED);
 	} else {
-		IPA_PM_ERR("client has no callback");
-		WARN_ON(1);
+		IPA_PM_ERR_RL("client has no callback");
 	}
 	mutex_unlock(&ipa_pm_ctx->client_mutex);
 
@@ -870,7 +878,7 @@ int ipa_pm_associate_ipa_cons_to_client(u32 hdl, enum ipa_client_type consumer)
 		return -EPERM;
 	}
 
-	idx = ipa_get_ep_mapping(consumer);
+	idx = ipa3_get_ep_mapping(consumer);
 
 	if (idx < 0) {
 		mutex_unlock(&ipa_pm_ctx->client_mutex);

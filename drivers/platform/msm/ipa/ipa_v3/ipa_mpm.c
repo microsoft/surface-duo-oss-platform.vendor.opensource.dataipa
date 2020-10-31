@@ -13,7 +13,8 @@
 #include <linux/delay.h>
 #include <linux/log2.h>
 #include <linux/gfp.h>
-#include "../ipa_common_i.h"
+#include "gsi.h"
+#include "ipa_common_i.h"
 #include "ipa_i.h"
 
 #define IPA_MPM_DRV_NAME "ipa_mpm"
@@ -22,9 +23,9 @@
 	do { \
 		pr_debug(IPA_MPM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_MPM_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_MPM_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -32,7 +33,7 @@
 	do { \
 		pr_debug(IPA_MPM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_MPM_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -41,9 +42,9 @@
 	do { \
 		pr_err(IPA_MPM_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 				IPA_MPM_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 				IPA_MPM_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -64,8 +65,6 @@
 #define TETH_AGGR_BYTE_LIMIT 24
 #define TETH_AGGR_DL_BYTE_LIMIT 16
 #define TRE_BUFF_SIZE 32768
-#define IPA_HOLB_TMR_EN 0x1
-#define IPA_HOLB_TMR_DIS 0x0
 #define RNDIS_IPA_DFLT_RT_HDL 0
 #define IPA_POLL_FOR_EMPTINESS_NUM 50
 #define IPA_POLL_FOR_EMPTINESS_SLEEP_USEC 20
@@ -3002,7 +3001,7 @@ static int ipa_mpm_populate_smmu_info(struct platform_device *pdev)
 
 	/* get IPA SMMU enabled status */
 	smmu_in.smmu_client = IPA_SMMU_AP_CLIENT;
-	if (ipa_get_smmu_params(&smmu_in, &smmu_out))
+	if (ipa3_get_smmu_params(&smmu_in, &smmu_out))
 		ipa_mpm_ctx->dev_info.ipa_smmu_enabled = false;
 	else
 		ipa_mpm_ctx->dev_info.ipa_smmu_enabled =

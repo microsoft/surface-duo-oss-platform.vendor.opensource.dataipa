@@ -9,15 +9,13 @@
 #include <linux/debugfs.h>
 #include <linux/ipa.h>
 #include <linux/ipa_usb.h>
-#include <linux/rndis_ipa.h>
-#include <linux/ecm_ipa.h>
 #include <linux/ipa_fmwk.h>
-#include "../ipa_v3/ipa_i.h"
-#include "../ipa_rm_i.h"
+#include "rndis_ipa.h"
+#include "ecm_ipa.h"
+#include "ipa_i.h"
+#include "ipa_rm_i.h"
 
 #define IPA_USB_DEV_READY_TIMEOUT_MSEC 10000
-
-#define IPA_HOLB_TMR_EN 0x1
 
 /* GSI channels weights */
 #define IPA_USB_DL_CHAN_LOW_WEIGHT 0x5
@@ -31,9 +29,9 @@
 	do { \
 		pr_debug(IPA_USB_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -41,7 +39,7 @@
 	do { \
 		pr_debug(IPA_USB_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -49,9 +47,9 @@
 	do { \
 		pr_err(IPA_USB_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -59,9 +57,9 @@
 	do { \
 		pr_info(IPA_USB_DRV_NAME " %s:%d " fmt, \
 			__func__, __LINE__, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
-		IPA_IPC_LOGGING(ipa_get_ipc_logbuf_low(), \
+		IPA_IPC_LOGGING(ipa3_get_ipc_logbuf_low(), \
 			IPA_USB_DRV_NAME " %s:%d " fmt, ## args); \
 	} while (0)
 
@@ -605,7 +603,7 @@ static int ipa3_usb_init_teth_bridge(void)
 {
 	int result;
 
-	result = teth_bridge_init(&ipa3_usb_ctx->teth_bridge_params);
+	result = ipa3_teth_bridge_init(&ipa3_usb_ctx->teth_bridge_params);
 	if (result) {
 		IPA_USB_ERR("Failed to initialize teth_bridge\n");
 		return result;
@@ -733,7 +731,7 @@ static int ipa_usb_set_lock_unlock(bool is_lock)
 	return 0;
 }
 
-static int ipa_usb_init_teth_prot_api(enum ipa_usb_teth_prot teth_prot,
+static int ipa_usb_init_teth_prot_internal(enum ipa_usb_teth_prot teth_prot,
 			   struct ipa_usb_teth_params *teth_params,
 			   int (*ipa_usb_notify_cb)(enum ipa_usb_notify_event,
 			   void *),
@@ -870,7 +868,7 @@ static int ipa_usb_init_teth_prot_api(enum ipa_usb_teth_prot teth_prot,
 		 * If needed we can include the same for IPA_PROD ep.
 		 * For IPA_USB_DIAG/DPL config there will not be any UL ep.
 		 */
-		ipa_register_client_callback(&ipa_usb_set_lock_unlock,
+		ipa3_register_client_callback(&ipa_usb_set_lock_unlock,
 			&ipa3_usb_get_teth_port_state, IPA_CLIENT_USB_PROD);
 		break;
 	case IPA_USB_DIAG:
@@ -1319,7 +1317,7 @@ static int ipa3_usb_connect_teth_bridge(
 {
 	int result;
 
-	result = teth_bridge_connect(params);
+	result = ipa3_teth_bridge_connect(params);
 	if (result) {
 		IPA_USB_ERR("failed to connect teth_bridge (%s)\n",
 			params->tethering_mode == TETH_TETHERING_MODE_RMNET ?
@@ -1459,7 +1457,7 @@ static int ipa3_usb_disconnect_teth_bridge(void)
 {
 	int result;
 
-	result = teth_bridge_disconnect(IPA_CLIENT_USB_PROD);
+	result = ipa3_teth_bridge_disconnect(IPA_CLIENT_USB_PROD);
 	if (result) {
 		IPA_USB_ERR("failed to disconnect teth_bridge\n");
 		return result;
@@ -1828,7 +1826,7 @@ static void ipa_usb_debugfs_init(void){}
 static void ipa_usb_debugfs_remove(void){}
 #endif /* CONFIG_DEBUG_FS */
 
-static int ipa_usb_xdci_connect_api(struct ipa_usb_xdci_chan_params *ul_chan_params,
+static int ipa_usb_xdci_connect_internal(struct ipa_usb_xdci_chan_params *ul_chan_params,
 			 struct ipa_usb_xdci_chan_params *dl_chan_params,
 			 struct ipa_req_chan_out_params *ul_out_params,
 			 struct ipa_req_chan_out_params *dl_out_params,
@@ -1995,7 +1993,7 @@ static int ipa_usb_xdci_dismiss_channels(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	return 0;
 }
 
-static int ipa_usb_xdci_disconnect_api(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
+static int ipa_usb_xdci_disconnect_internal(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 			    enum ipa_usb_teth_prot teth_prot)
 {
 	int result = 0;
@@ -2044,7 +2042,7 @@ static int ipa_usb_xdci_disconnect_api(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
 		holb_cfg.en = IPA_HOLB_TMR_EN;
 		holb_cfg.tmr_val = 0;
-		ipa_cfg_ep_holb(dl_clnt_hdl, &holb_cfg);
+		ipa3_cfg_ep_holb(dl_clnt_hdl, &holb_cfg);
 	}
 
 	spin_lock_irqsave(&ipa3_usb_ctx->state_lock, flags);
@@ -2106,7 +2104,7 @@ bad_params:
 
 }
 
-static int ipa_usb_deinit_teth_prot_api(enum ipa_usb_teth_prot teth_prot)
+static int ipa_usb_deinit_teth_prot_internal(enum ipa_usb_teth_prot teth_prot)
 {
 	int result = -EFAULT;
 	enum ipa3_usb_transport_type ttype;
@@ -2292,7 +2290,7 @@ fail_exit:
 	return result;
 }
 
-static int ipa_usb_xdci_suspend_api(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
+static int ipa_usb_xdci_suspend_internal(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	enum ipa_usb_teth_prot teth_prot, bool with_remote_wakeup)
 {
 	int result = 0;
@@ -2450,7 +2448,7 @@ fail_exit:
 	return result;
 }
 
-static int ipa_usb_xdci_resume_api(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
+static int ipa_usb_xdci_resume_internal(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	enum ipa_usb_teth_prot teth_prot)
 {
 	int result = -EFAULT;
@@ -2605,12 +2603,12 @@ int ipa3_usb_init(void)
 
 	ipa_usb_debugfs_init();
 
-	funcs.ipa_usb_init_teth_prot = ipa_usb_init_teth_prot_api;
-	funcs.ipa_usb_xdci_connect = ipa_usb_xdci_connect_api;
-	funcs.ipa_usb_xdci_disconnect = ipa_usb_xdci_disconnect_api;
-	funcs.ipa_usb_deinit_teth_prot = ipa_usb_deinit_teth_prot_api;
-	funcs.ipa_usb_xdci_suspend = ipa_usb_xdci_suspend_api;
-	funcs.ipa_usb_xdci_resume = ipa_usb_xdci_resume_api;
+	funcs.ipa_usb_init_teth_prot = ipa_usb_init_teth_prot_internal;
+	funcs.ipa_usb_xdci_connect = ipa_usb_xdci_connect_internal;
+	funcs.ipa_usb_xdci_disconnect = ipa_usb_xdci_disconnect_internal;
+	funcs.ipa_usb_deinit_teth_prot = ipa_usb_deinit_teth_prot_internal;
+	funcs.ipa_usb_xdci_suspend = ipa_usb_xdci_suspend_internal;
+	funcs.ipa_usb_xdci_resume = ipa_usb_xdci_resume_internal;
 	if (ipa_fmwk_register_ipa_usb(&funcs)) {
 		pr_err("failed to register ipa_usb APIs\n");
 	}
@@ -2635,7 +2633,7 @@ void ipa3_usb_exit(void)
 	 * If needed we can include the same for IPA_PROD ep.
 	 * For IPA_USB_DIAG/DPL config there will not be any UL config.
 	 */
-	ipa_deregister_client_callback(IPA_CLIENT_USB_PROD);
+	ipa3_deregister_client_callback(IPA_CLIENT_USB_PROD);
 
 	ipa_usb_debugfs_remove();
 	kfree(ipa3_usb_ctx);

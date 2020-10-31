@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #include "ipa_i.h"
-#include "ipahal/ipahal.h"
-#include "ipahal/ipahal_fltrt.h"
+#include "ipahal.h"
+#include "ipahal_fltrt.h"
 
 #define IPA_FLT_STATUS_OF_ADD_FAILED		(-1)
 #define IPA_FLT_STATUS_OF_DEL_FAILED		(-1)
@@ -64,9 +64,14 @@ static int ipa3_generate_flt_hw_rule(enum ipa_ip_type ip,
 	}
 
 	gen_params.ipt = ip;
-	if (entry->rt_tbl && (!ipa3_check_idr_if_freed(entry->rt_tbl)))
-		gen_params.rt_tbl_idx = entry->rt_tbl->idx;
-	else
+	if (entry->rt_tbl) {
+		if (ipa3_check_idr_if_freed(entry->rt_tbl)) {
+			IPAERR_RL("Routing table already freed\n");
+			return -EPERM;
+		} else {
+			gen_params.rt_tbl_idx = entry->rt_tbl->idx;
+		}
+	} else
 		gen_params.rt_tbl_idx = entry->rule.rt_tbl_idx;
 
 	gen_params.priority = entry->prio;
@@ -847,7 +852,7 @@ static int __ipa_validate_flt_rule(const struct ipa_flt_rule_i *rule,
 					"PDN index should be 0 when action is not pass to NAT\n");
 				goto error;
 			} else {
-				if (rule->pdn_idx >= IPA_MAX_PDN_NUM) {
+				if (rule->pdn_idx >= ipa3_get_max_pdn()) {
 					IPAERR_RL("PDN index %d is too large\n",
 						rule->pdn_idx);
 					goto error;

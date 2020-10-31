@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 ipam-y += \
-	ipa_api.o ipa_rm.o ipa_rm_dependency_graph.o ipa_rm_peers_list.o ipa_rm_resource.o ipa_rm_inactivity_timer.o \
+	ipa_rm.o ipa_rm_dependency_graph.o ipa_rm_peers_list.o ipa_rm_resource.o ipa_rm_inactivity_timer.o \
 	ipa_v3/ipa.o \
 	ipa_v3/ipa_debugfs.o \
 	ipa_v3/ipa_hdr.o \
@@ -31,12 +31,6 @@ ipam-y += \
 	ipa_v3/ipahal/ipahal_fltrt.o \
 	ipa_v3/ipahal/ipahal_hw_stats.o \
 	ipa_v3/ipahal/ipahal_nat.o \
-	ipa_clients/odu_bridge.o \
-	ipa_clients/ipa_mhi_client.o \
-	ipa_clients/ipa_uc_offload.o \
-	ipa_clients/ipa_wdi3.o \
-	ipa_clients/ipa_gsb.o \
-	ipa_clients/ipa_wigig.o
 
 ipam-$(CONFIG_RMNET_IPA3) += ipa_v3/rmnet_ipa.o ipa_v3/ipa_qmi_service_v01.o \
 	ipa_v3/ipa_qmi_service.o ipa_v3/rmnet_ctl_ipa.o \
@@ -55,8 +49,3 @@ obj-$(CONFIG_IPA3) += ipam.o
 
 obj-y += ipa_v3/ ipa_clients/
 
-ccflags-$(CONFIG_IPA3) += -Idrivers/platform/msm/ipa/ipa_v3
-ccflags-$(CONFIG_IPA3) += -Idrivers/platform/msm/ipa/ipa_v3/ipahal
-ccflags-$(CONFIG_IPA3) += -Idrivers/platform/msm/ipa/ipa_clients
-ccflags-$(CONFIG_IPA3_REGDUMP) += -Idrivers/platform/msm/ipa/ipa_v3/dump
-ccflags-$(CONFIG_IPA3_REGDUMP_IPA_4_5) += -Idrivers/platform/msm/ipa/ipa_v3/dump/ipa4.5

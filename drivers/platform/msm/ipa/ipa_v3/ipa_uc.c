@@ -617,6 +617,7 @@ int ipa3_uc_state_check(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa3_uc_state_check);
 
 /**
  * ipa3_uc_loaded_check() - Check the uC has been loaded
@@ -1088,15 +1089,16 @@ int ipa3_uc_interface_init(void)
 		if (!ipa_uc_holb_wq) {
 			IPAERR("Failed to create ipa_uc_holb_wq\n");
 			result = -EFAULT;
-			goto fail_wq;
+			goto irq_fail3;
 		}
 	}
 	ipa3_ctx->uc_ctx.uc_inited = true;
 
 	IPADBG("IPA uC interface is initialized\n");
 	return 0;
-fail_wq:
-	destroy_workqueue(ipa_uc_holb_wq);
+
+irq_fail3:
+	ipa3_remove_interrupt_handler(IPA_UC_IRQ_2);
 irq_fail2:
 	ipa3_remove_interrupt_handler(IPA_UC_IRQ_1);
 irq_fail1:
@@ -1760,6 +1762,7 @@ int ipa3_set_wlan_tx_info(struct ipa_wdi_tx_info *info)
 
 	return 0;
 }
+EXPORT_SYMBOL(ipa3_set_wlan_tx_info);
 
 int ipa3_uc_send_enable_flow_control(uint16_t gsi_chid,
 		uint16_t redMarkerThreshold)

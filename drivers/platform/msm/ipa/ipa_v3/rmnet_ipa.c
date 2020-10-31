@@ -264,9 +264,9 @@ static void ipa3_del_a7_qmap_hdr(void)
 	hdl_entry = &del_hdr->hdl[0];
 	hdl_entry->hdl = rmnet_ipa3_ctx->qmap_hdr_hdl;
 
-	ret = ipa_del_hdr(del_hdr);
+	ret = ipa3_del_hdr(del_hdr);
 	if (ret || hdl_entry->status)
-		IPAWANERR("ipa_del_hdr failed\n");
+		IPAWANERR("ipa3_del_hdr failed\n");
 	else
 		IPAWANDBG("hdrs deletion done\n");
 
@@ -299,9 +299,9 @@ static void ipa3_del_qmap_hdr(uint32_t hdr_hdl)
 	hdl_entry = &del_hdr->hdl[0];
 	hdl_entry->hdl = hdr_hdl;
 
-	ret = ipa_del_hdr(del_hdr);
+	ret = ipa3_del_hdr(del_hdr);
 	if (ret || hdl_entry->status)
-		IPAWANERR("ipa_del_hdr failed\n");
+		IPAWANERR("ipa3_del_hdr failed\n");
 	else
 		IPAWANDBG("header deletion done\n");
 
@@ -471,7 +471,7 @@ static void ipa3_del_dflt_wan_rt_tables(void)
 
 	IPAWANERR("Deleting Route hdl:(0x%x) with ip type: %d\n",
 		rt_rule_entry->hdl, IPA_IP_v4);
-	if (ipa_del_rt_rule(rt_rule) ||
+	if (ipa3_del_rt_rule(rt_rule) ||
 			(rt_rule_entry->status)) {
 		IPAWANERR("Routing rule deletion failed\n");
 	}
@@ -480,7 +480,7 @@ static void ipa3_del_dflt_wan_rt_tables(void)
 	rt_rule_entry->hdl = rmnet_ipa3_ctx->dflt_v6_wan_rt_hdl;
 	IPAWANERR("Deleting Route hdl:(0x%x) with ip type: %d\n",
 		rt_rule_entry->hdl, IPA_IP_v6);
-	if (ipa_del_rt_rule(rt_rule) ||
+	if (ipa3_del_rt_rule(rt_rule) ||
 			(rt_rule_entry->status)) {
 		IPAWANERR("Routing rule deletion failed\n");
 	}
@@ -795,7 +795,7 @@ static int ipa3_wwan_add_ul_flt_rule_to_ipa(void)
 			sizeof(struct ipa_ipfltri_rule_eq));
 		memcpy(&(param->rules[0]), &flt_rule_entry,
 			sizeof(struct ipa_flt_rule_add));
-		if (ipa_add_flt_rule((struct ipa_ioc_add_flt_rule *)param)) {
+		if (ipa3_add_flt_rule((struct ipa_ioc_add_flt_rule *)param)) {
 			retval = -EFAULT;
 			IPAWANERR("add A7 UL filter rule(%d) failed\n", i);
 		} else {
@@ -857,7 +857,7 @@ static int ipa3_wwan_del_ul_flt_rule_to_ipa(void)
 		IPAWANDBG("delete-IPA rule index(%d)\n", i);
 		memcpy(&(param->hdl[0]), &flt_rule_entry,
 			sizeof(struct ipa_flt_rule_del));
-		if (ipa_del_flt_rule((struct ipa_ioc_del_flt_rule *)param)) {
+		if (ipa3_del_flt_rule((struct ipa_ioc_del_flt_rule *)param)) {
 			IPAWANERR("del A7 UL filter rule(%d) failed\n", i);
 			kfree(param);
 			return -EFAULT;
@@ -1392,6 +1392,7 @@ static void apps_ipa_packet_receive_notify(void *priv,
 		IPAWANDBG_LOW("Rx packet was received");
 		skb->dev = IPA_NETDEV();
 		skb->protocol = htons(ETH_P_MAP);
+		skb_set_mac_header(skb, 0);
 
 		if (ipa3_rmnet_res.ipa_napi_enable) {
 			trace_rmnet_ipa_netif_rcv_skb3(dev->stats.rx_packets);
@@ -1500,7 +1501,7 @@ static int handle3_ingress_format(struct net_device *dev,
 				  in->u.ingress_format.agg_size,
 				  in->u.ingress_format.agg_count);
 
-		ret = ipa_disable_apps_wan_cons_deaggr(
+		ret = ipa3_disable_apps_wan_cons_deaggr(
 			  in->u.ingress_format.agg_size,
 			  in->u.ingress_format.agg_count);
 
@@ -1584,9 +1585,6 @@ low_lat_fail:
 	ret = ipa3_setup_dflt_wan_rt_tables();
 	if (ret)
 		ipa3_del_a7_qmap_hdr();
-
-	/* notify rmnet_ctl pipes are ready to ues */
-	ipa3_rmnet_ctl_ready_notifier();
 
 	/* Sending QMI indication message share RSC/QMAP pipe details*/
 	ipa_send_wan_pipe_ind_to_modem(ingress_eps_mask);
@@ -2669,8 +2667,6 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 		IPAWANERR("Failed to teardown APPS->IPA pipe\n");
 	else
 		rmnet_ipa3_ctx->apps_to_ipa3_hdl = -1;
-	if (ipa3_rmnet_res.ipa_napi_enable)
-		netif_napi_del(&(rmnet_ipa3_ctx->wwan_priv->napi));
 	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 	IPAWANINFO("rmnet_ipa unregister_netdev\n");
 	unregister_netdev(IPA_NETDEV());
@@ -2753,7 +2749,7 @@ static int rmnet_ipa_ap_suspend(struct device *dev)
 	}
 
 	/* Make sure that there is no Tx operation ongoing */
-	netif_stop_queue(netdev);
+	netif_device_detach(netdev);
 	spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 
 	IPAWANDBG("De-activating the PM resource.\n");
@@ -2781,8 +2777,10 @@ static int rmnet_ipa_ap_resume(struct device *dev)
 	IPAWANDBG("Enter...\n");
 	/* Clear the suspend in progress flag. */
 	atomic_set(&rmnet_ipa3_ctx->ap_suspend, 0);
-	if (netdev)
-		netif_wake_queue(netdev);
+	if (netdev) {
+		netif_device_attach(netdev);
+		netif_trans_update(netdev);
+	}
 	IPAWANDBG("Exit\n");
 
 	return 0;
@@ -2801,8 +2799,8 @@ static const struct of_device_id rmnet_ipa_dt_match[] = {
 MODULE_DEVICE_TABLE(of, rmnet_ipa_dt_match);
 
 static const struct dev_pm_ops rmnet_ipa_pm_ops = {
-	.suspend_noirq = rmnet_ipa_ap_suspend,
-	.resume_noirq = rmnet_ipa_ap_resume,
+	.suspend_late = rmnet_ipa_ap_suspend,
+	.resume_early = rmnet_ipa_ap_resume,
 };
 
 static struct platform_driver rmnet_ipa_driver = {
@@ -2859,12 +2857,13 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 	switch (code) {
 	case SUBSYS_BEFORE_SHUTDOWN:
 		IPAWANINFO("IPA received MPSS BEFORE_SHUTDOWN\n");
+		/*Stop netdev first to stop queueing pkts to Q6 */
+		if (IPA_NETDEV())
+			netif_stop_queue(IPA_NETDEV());
 		/* send SSR before-shutdown notification to IPACM */
 		rmnet_ipa_send_ssr_notification(false);
 		atomic_set(&rmnet_ipa3_ctx->is_ssr, 1);
 		ipa3_q6_pre_shutdown_cleanup();
-		if (IPA_NETDEV())
-			netif_stop_queue(IPA_NETDEV());
 		ipa3_qmi_stop_workqueues();
 		ipa3_wan_ioctl_stop_qmi_messages();
 		ipa_stop_polling_stats();
@@ -2896,7 +2895,7 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 			ipa3_q6_pre_powerup_cleanup();
 		}
 		/* hold a proxy vote for the modem. */
-		ipa_proxy_clk_vote();
+		ipa3_proxy_clk_vote(atomic_read(&rmnet_ipa3_ctx->is_ssr));
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
@@ -3186,10 +3185,11 @@ static int rmnet_ipa3_set_data_quota_wifi(struct wan_ioctl_set_data_quota *data)
 	memset(&wifi_quota, 0, sizeof(struct ipa_set_wifi_quota));
 	wifi_quota.set_quota = data->set_quota;
 	wifi_quota.quota_bytes = data->quota_mbytes;
-	IPAWANERR("iface name %s, quota %lu\n",
+	IPAWANDBG("iface name %s, quota %lu\n",
 		  data->interface_name, (unsigned long) data->quota_mbytes);
 
-	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5) {
+	if (ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_5 &&
+		ipa3_ctx_get_type(IPA_HW_TYPE) != IPA_HW_v4_11) {
 		IPADBG("use ipa-uc for quota\n");
 		rc = ipa3_uc_quota_monitor(data->set_quota);
 	} else {
@@ -3287,10 +3287,10 @@ int rmnet_ipa3_set_tether_client_pipe(
 		IPAWANDBG("UL index-%d pipe %d\n", i,
 			data->ul_src_pipe_list[i]);
 		if (data->reset_client)
-			ipa_set_client(data->ul_src_pipe_list[i],
+			ipa3_set_client(data->ul_src_pipe_list[i],
 				0, false);
 		else
-			ipa_set_client(data->ul_src_pipe_list[i],
+			ipa3_set_client(data->ul_src_pipe_list[i],
 				data->ipa_client, true);
 	}
 	number = data->dl_dst_pipe_len;
@@ -3298,10 +3298,10 @@ int rmnet_ipa3_set_tether_client_pipe(
 		IPAWANDBG("DL index-%d pipe %d\n", i,
 			data->dl_dst_pipe_list[i]);
 		if (data->reset_client)
-			ipa_set_client(data->dl_dst_pipe_list[i],
+			ipa3_set_client(data->dl_dst_pipe_list[i],
 				0, false);
 		else
-			ipa_set_client(data->dl_dst_pipe_list[i],
+			ipa3_set_client(data->dl_dst_pipe_list[i],
 				data->ipa_client, false);
 	}
 	return 0;
@@ -3418,9 +3418,9 @@ static int rmnet_ipa3_query_tethering_stats_modem(
 			IPAWANDBG_LOW("dl_b_v4(%lu)v6(%lu)\n",
 				(unsigned long) stat_ptr->num_ipv4_bytes,
 				(unsigned long) stat_ptr->num_ipv6_bytes);
-			if (ipa_get_client_uplink(
+			if (ipa3_get_client_uplink(
 				stat_ptr->pipe_index) == false) {
-				if (data->ipa_client == ipa_get_client(
+				if (data->ipa_client == ipa3_get_client(
 					stat_ptr->pipe_index)) {
 					/* update the DL stats */
 					data->ipv4_rx_packets +=
@@ -3456,9 +3456,9 @@ static int rmnet_ipa3_query_tethering_stats_modem(
 			IPAWANDBG_LOW("ul_b_v4(%lu)v6(%lu)\n",
 				(unsigned long)stat_ptr->num_ipv4_bytes,
 				(unsigned long) stat_ptr->num_ipv6_bytes);
-			if (ipa_get_client_uplink(
+			if (ipa3_get_client_uplink(
 				stat_ptr->pipe_index) == true) {
-				if (data->ipa_client == ipa_get_client(
+				if (data->ipa_client == ipa3_get_client(
 					stat_ptr->pipe_index)) {
 					/* update the DL stats */
 					data->ipv4_tx_packets +=
@@ -4218,7 +4218,7 @@ void ipa3_broadcast_quota_reach_ind(u32 mux_id,
 		return;
 	}
 
-	IPAWANERR("putting nlmsg: <%s> <%s> <%s>\n",
+	IPAWANDBG("putting nlmsg: <%s> <%s> <%s>\n",
 		alert_msg, iface_name_l, iface_name_m);
 	kobject_uevent_env(&(IPA_NETDEV()->dev.kobj),
 		KOBJ_CHANGE, envp);
@@ -4644,6 +4644,7 @@ int rmnet_ipa3_query_per_client_stats(
 		return -EINVAL;
 	}
 
+	teth_ptr = &rmnet_ipa3_ctx->tether_device[data->device_type];
 	if (data->num_clients == 1) {
 		/* Check if the client info is valid.*/
 		lan_clnt_idx1 = rmnet_ipa3_get_lan_client_info(
@@ -4655,7 +4656,6 @@ int rmnet_ipa3_query_per_client_stats(
 			return -EINVAL;
 		}
 
-		teth_ptr = &rmnet_ipa3_ctx->tether_device[data->device_type];
 		lan_client = &teth_ptr->lan_client[lan_clnt_idx1];
 
 		/*
@@ -4726,7 +4726,7 @@ int rmnet_ipa3_query_per_client_stats(
 		return rc;
 	}
 
-	if (resp->per_client_stats_list_valid) {
+	if (resp->per_client_stats_list_valid && teth_ptr) {
 		for (i = 0; i < resp->per_client_stats_list_len
 				&& i < IPA_MAX_NUM_HW_PATH_CLIENTS; i++) {
 			/* Subtract the header bytes from the DL bytes. */
@@ -4985,7 +4985,7 @@ static int ipa3_rmnet_poll(struct napi_struct *napi, int budget)
 {
 	int rcvd_pkts = 0;
 
-	rcvd_pkts = ipa_rx_poll(rmnet_ipa3_ctx->ipa3_to_apps_hdl,
+	rcvd_pkts = ipa3_rx_poll(rmnet_ipa3_ctx->ipa3_to_apps_hdl,
 					NAPI_WEIGHT);
 	IPAWANDBG_LOW("rcvd packets: %d\n", rcvd_pkts);
 	return rcvd_pkts;

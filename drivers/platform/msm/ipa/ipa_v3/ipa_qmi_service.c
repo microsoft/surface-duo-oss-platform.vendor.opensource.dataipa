@@ -1258,6 +1258,7 @@ int ipa3_qmi_enable_force_clear_datapath_send(
 		resp.resp.result,
 		resp.resp.error, "ipa_enable_force_clear_datapath");
 }
+EXPORT_SYMBOL(ipa3_qmi_enable_force_clear_datapath_send);
 
 int ipa3_qmi_disable_force_clear_datapath_send(
 	struct ipa_disable_force_clear_datapath_req_msg_v01 *req)
@@ -1315,6 +1316,7 @@ int ipa3_qmi_disable_force_clear_datapath_send(
 		resp.resp.result,
 		resp.resp.error, "ipa_disable_force_clear_datapath");
 }
+EXPORT_SYMBOL(ipa3_qmi_disable_force_clear_datapath_send);
 
 /* sending filter-installed-notify-request to modem*/
 int ipa3_qmi_filter_notify_send(
@@ -1505,6 +1507,7 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 		IPAWANERR(
 		"ipa3_qmi_init_modem_send_sync_msg failed due to SSR!\n");
 		/* Cleanup when ipa3_wwan_remove is called */
+		qmi_handle_release(ipa_q6_clnt);
 		vfree(ipa_q6_clnt);
 		ipa_q6_clnt = NULL;
 		return;
@@ -1726,7 +1729,7 @@ static void ipa3_qmi_service_init_worker(struct work_struct *work)
 	IPAWANDBG("IPA A7 QMI init OK :>>>>\n");
 
 	ipa3_qmi_ctx->modem_cfg_emb_pipe_flt =
-		ipa_get_modem_cfg_emb_pipe_flt();
+		ipa3_get_modem_cfg_emb_pipe_flt();
 
 	ipa3_qmi_ctx->num_ipa_offload_connection = 0;
 	ipa3_svc_handle = vzalloc(sizeof(*ipa3_svc_handle));

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/completion.h>
@@ -30,6 +30,9 @@
 	pr_debug(TETH_BRIDGE_DRV_NAME " %s:%d EXIT\n", __func__, __LINE__)
 #define TETH_ERR(fmt, args...) \
 	pr_err(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
+#define TETH_ERR_RL(fmt, args...) \
+	pr_err_ratelimited_ipa(TETH_BRIDGE_DRV_NAME " %s:%d " fmt, __func__, \
+		__LINE__, ## args);
 
 /**
  * struct ipa3_teth_bridge_ctx - Tethering bridge driver context information
@@ -65,12 +68,12 @@ static void teth_bridge_ipa_cb(void *priv, enum ipa_dp_evt_type evt,
 
 	TETH_DBG_FUNC_ENTRY();
 	if (evt != IPA_RECEIVE) {
-		TETH_ERR("unexpected event %d\n", evt);
+		TETH_ERR_RL("unexpected event %d\n", evt);
 		WARN_ON(1);
 		return;
 	}
 
-	TETH_ERR("Unexpected exception packet from USB, dropping packet\n");
+	TETH_ERR_RL("Unexpected exception packet from USB, dropping packet\n");
 	dev_kfree_skb_any(skb);
 	TETH_DBG_FUNC_EXIT();
 }
@@ -106,6 +109,7 @@ int ipa3_teth_bridge_init(struct teth_bridge_init_params *params)
 	TETH_DBG_FUNC_EXIT();
 	return 0;
 }
+EXPORT_SYMBOL(ipa3_teth_bridge_init);
 
 /**
  * ipa3_teth_bridge_get_pm_hdl() - Get the Tethering bridge Driver pm hdl
@@ -150,6 +154,7 @@ int ipa3_teth_bridge_disconnect(enum ipa_client_type client)
 
 	return res;
 }
+EXPORT_SYMBOL(ipa3_teth_bridge_disconnect);
 
 /**
  * ipa3_teth_bridge_connect() - Connect bridge for a tethered Rmnet / MBIM call
@@ -187,6 +192,7 @@ int ipa3_teth_bridge_connect(struct teth_bridge_connect_params *connect_params)
 	TETH_DBG_FUNC_EXIT();
 	return res;
 }
+EXPORT_SYMBOL(ipa3_teth_bridge_connect);
 
 static long ipa3_teth_bridge_ioctl(struct file *filp,
 			      unsigned int cmd,

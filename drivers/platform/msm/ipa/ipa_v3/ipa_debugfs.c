@@ -9,8 +9,8 @@
 #include <linux/kernel.h>
 #include <linux/stringify.h>
 #include "ipa_i.h"
-#include "../ipa_rm_i.h"
-#include "ipahal/ipahal_nat.h"
+#include "ipa_rm_i.h"
+#include "ipahal_nat.h"
 #include "ipa_odl.h"
 #include "ipa_qmi_service.h"
 
@@ -2058,7 +2058,7 @@ static void ipa3_read_pdn_table(void)
 		}
 
 		for (i = 0, pdn_entry = ipa3_ctx->nat_mem.pdn_mem.base;
-			 i < IPA_MAX_PDN_NUM;
+			 i < ipa3_get_max_pdn();
 			 ++i, pdn_entry += pdn_entry_size) {
 
 			result = ipahal_nat_is_entry_zeroed(
@@ -2716,6 +2716,38 @@ static ssize_t ipa3_enable_ipc_low(struct file *file,
 	return count;
 }
 
+static ssize_t ipa3_read_gsi_wdi3_db_polling(struct file *file,
+	char __user *buf, size_t count, loff_t *ppos) {
+
+	int nbytes;
+	nbytes = scnprintf(dbg_buff, IPA_MAX_MSG_LEN,
+				"gsi_wdi_db_polling = %d\n",
+				ipa3_ctx->gsi_wdi_db_polling);
+	return simple_read_from_buffer(buf, count, ppos, dbg_buff, nbytes);
+
+}
+static ssize_t ipa3_write_gsi_wdi3_db_polling(struct file *file,
+	const char __user *buf, size_t count, loff_t *ppos) {
+
+	int ret;
+	u32 gsi_wdi_db_polling =0;
+
+	if (count >= sizeof(dbg_buff))
+		return -EFAULT;
+
+	ret = kstrtou32_from_user(buf, count, 0, &gsi_wdi_db_polling);
+	if(ret)
+		return ret;
+
+	if(gsi_wdi_db_polling == 1)
+		ipa3_ctx->gsi_wdi_db_polling = true;
+	else if(gsi_wdi_db_polling == 0)
+		ipa3_ctx->gsi_wdi_db_polling = false;
+	else
+		IPAERR("Invalid value \n");
+	return count;
+}
+
 static const struct ipa3_debugfs_file debugfs_files[] = {
 	{
 		"gen_reg", IPA_READ_ONLY_MODE, NULL, {
@@ -2888,6 +2920,11 @@ static const struct ipa3_debugfs_file debugfs_files[] = {
 	}, {
 		"app_clk_vote_cnt", IPA_READ_ONLY_MODE, NULL, {
 			.read = ipa3_read_app_clk_vote,
+		}
+	},{
+		"wdi3_db_polling_enable", IPA_READ_WRITE_MODE, NULL, {
+			.read = ipa3_read_gsi_wdi3_db_polling,
+			.write = ipa3_write_gsi_wdi3_db_polling,
 		}
 	},
 };
