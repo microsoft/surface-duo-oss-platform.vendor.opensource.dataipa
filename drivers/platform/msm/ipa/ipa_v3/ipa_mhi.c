@@ -14,7 +14,6 @@
 #include "gsi.h"
 #include "ipa_common_i.h"
 #include "ipa_i.h"
-#include "ipa_qmi_service.h"
 
 #define IPA_MHI_DRV_NAME "ipa_mhi"
 
@@ -54,8 +53,8 @@
 #define IPA_MHI_FUNC_EXIT() \
 	IPA_MHI_DBG("EXIT\n")
 
-#define IPA_MHI_MAX_UL_CHANNELS 1
-#define IPA_MHI_MAX_DL_CHANNELS 2
+#define IPA_MHI_MAX_UL_CHANNELS 2
+#define IPA_MHI_MAX_DL_CHANNELS 3
 
 /* bit #40 in address should be asserted for MHI transfers over pcie */
 #define IPA_MHI_HOST_ADDR_COND(addr) \
