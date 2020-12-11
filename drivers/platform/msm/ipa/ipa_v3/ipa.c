@@ -993,6 +993,169 @@ static void ipa3_gsb_msg_free_cb(void *buff, u32 len, u32 type)
 	kfree(buff);
 }
 
+static void ipa3_get_usb_ep_info(
+		struct ipa_ioc_get_ep_info *ep_info,
+		struct ipa_ep_pair_info *pair_info
+		)
+{
+	int ep_index = -1, i;
+
+	ep_info->num_ep_pairs = 0;
+	for (i = 0; i < ep_info->max_ep_pairs; i++) {
+		pair_info[i].consumer_pipe_num = -1;
+		pair_info[i].producer_pipe_num = -1;
+		pair_info[i].ep_id = -1;
+	}
+
+	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_PROD);
+
+	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB2_CONS);
+		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+				ep_index;
+			pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_USB1_EP_ID;
+
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+			ep_info->num_ep_pairs++;
+		} else {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+		}
+	}
+
+	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_PROD);
+
+	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_USB_CONS);
+		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+				ep_index;
+			pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_USB0_EP_ID;
+
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+			ep_info->num_ep_pairs++;
+		} else {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+		}
+	}
+}
+
+static void ipa3_get_pcie_ep_info(
+			struct ipa_ioc_get_ep_info *ep_info,
+			struct ipa_ep_pair_info *pair_info
+			)
+{
+	int ep_index = -1, i;
+
+	ep_info->num_ep_pairs = 0;
+	for (i = 0; i < ep_info->max_ep_pairs; i++) {
+		pair_info[i].consumer_pipe_num = -1;
+		pair_info[i].producer_pipe_num = -1;
+		pair_info[i].ep_id = -1;
+	}
+
+	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_PROD);
+
+	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_CONS);
+		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+				ep_index;
+			pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_PCIE1_EP_ID;
+
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+			ep_info->num_ep_pairs++;
+		} else {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+		}
+	}
+
+	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI_PROD);
+
+	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI_CONS);
+		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+				ep_index;
+			pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_PCIE0_EP_ID;
+
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+			ep_info->num_ep_pairs++;
+		} else {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+		}
+	}
+}
+
+
+static int ipa3_get_ep_info(struct ipa_ioc_get_ep_info *ep_info,
+							u8 *param)
+{
+	int ret = 0;
+	struct ipa_ep_pair_info *pair_info = (struct ipa_ep_pair_info *)param;
+
+	switch (ep_info->ep_type) {
+	case IPA_DATA_EP_TYP_HSUSB:
+		ipa3_get_usb_ep_info(ep_info, pair_info);
+		break;
+
+	case IPA_DATA_EP_TYP_PCIE:
+		ipa3_get_pcie_ep_info(ep_info, pair_info);
+		break;
+
+	default:
+		IPAERR_RL("Undefined ep_type %d\n", ep_info->ep_type);
+		ret = -EFAULT;
+		break;
+	}
+
+	return ret;
+}
+
 static int ipa3_send_gsb_msg(unsigned long usr_param, uint8_t msg_type)
 {
 	int retval;
@@ -1959,6 +2122,8 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	size_t sz;
 	int pre_entry;
 	int hdl;
+	unsigned long uptr = 0;
+	struct ipa_ioc_get_ep_info ep_info;
 
 	IPADBG("cmd=%x nr=%d\n", cmd, _IOC_NR(cmd));
 
@@ -3179,6 +3344,71 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 
+	case IPA_IOC_GET_PHERIPHERAL_EP_INFO:
+		IPADBG("Got IPA_IOC_GET_EP_INFO\n");
+		if (ipa3_ctx->ipa_config_is_auto == false) {
+			IPADBG("not an auto config: returning error\n");
+			retval = -ENOTTY;
+			break;
+		}
+		if (copy_from_user(&ep_info, (const void __user *)arg,
+			sizeof(struct ipa_ioc_get_ep_info))) {
+			IPAERR_RL("copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		if (ep_info.max_ep_pairs != QUERY_MAX_EP_PAIRS) {
+			IPAERR_RL("unexpected max_ep_pairs %d\n",
+			ep_info.max_ep_pairs);
+			retval = -EFAULT;
+			break;
+		}
+
+		if (ep_info.ep_pair_size !=
+			(QUERY_MAX_EP_PAIRS * sizeof(struct ipa_ep_pair_info))) {
+			IPAERR_RL("unexpected ep_pair_size %d\n",
+			ep_info.max_ep_pairs);
+			retval = -EFAULT;
+			break;
+		}
+
+		uptr = ep_info.info;
+		if (unlikely(!uptr)) {
+			IPAERR_RL("unexpected NULL info\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		param = kzalloc(ep_info.ep_pair_size, GFP_KERNEL);
+		if (!param) {
+			IPAERR_RL("kzalloc fails\n");
+			retval = -ENOMEM;
+			break;
+		}
+
+		retval = ipa3_get_ep_info(&ep_info, param);
+		if (retval < 0) {
+			IPAERR("ipa3_get_ep_info failed\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		if (copy_to_user((void __user *)uptr, param,
+			ep_info.ep_pair_size)) {
+			IPAERR_RL("copy_to_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		if (copy_to_user((void __user *)arg, &ep_info,
+			sizeof(struct ipa_ioc_get_ep_info))) {
+			IPAERR_RL("copy_to_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -ENOTTY;
@@ -4130,9 +4360,14 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 	if (!ipa3_ctx->ipa_endp_delay_wa)
 		ipa3_q6_pipe_delay(true);
 	ipa3_q6_avoid_holb();
-	if (ipa3_ctx->ipa_config_is_mhi)
+	if (ipa3_ctx->ipa_config_is_mhi) {
 		ipa3_set_reset_client_cons_pipe_sus_holb(true,
 		IPA_CLIENT_MHI_CONS);
+		if (ipa3_ctx->ipa_config_is_auto)
+			ipa3_set_reset_client_cons_pipe_sus_holb(true,
+				IPA_CLIENT_MHI2_CONS);
+	}
+
 	if (ipa3_q6_clean_q6_tables()) {
 		IPAERR("Failed to clean Q6 tables\n");
 		/*
@@ -4235,9 +4470,15 @@ void ipa3_q6_pre_powerup_cleanup(void)
 
 	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
-	if (ipa3_ctx->ipa_config_is_mhi)
-		ipa3_set_reset_client_prod_pipe_delay(true,
-			IPA_CLIENT_MHI_PROD);
+	if (ipa3_ctx->ipa_config_is_mhi) {
+		if (!ipa3_ctx->ipa_endp_delay_wa) {
+			ipa3_set_reset_client_prod_pipe_delay(true,
+				IPA_CLIENT_MHI_PROD);
+			if (ipa3_ctx->ipa_config_is_auto)
+				ipa3_set_reset_client_prod_pipe_delay(true,
+					IPA_CLIENT_MHI2_PROD);
+		}
+	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	IPADBG_LOW("Exit with success\n");
@@ -7192,6 +7433,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		resource_p->ipa_holb_monitor_max_cnt_usb;
 	ipa3_ctx->uc_ctx.holb_monitor.max_cnt_11ad =
 		resource_p->ipa_holb_monitor_max_cnt_11ad;
+	ipa3_ctx->ipa_wan_aggr_pkt_cnt = resource_p->ipa_wan_aggr_pkt_cnt;
 	ipa3_ctx->stats.page_recycle_stats[0].total_replenished = 0;
 	ipa3_ctx->stats.page_recycle_stats[0].tmp_alloc = 0;
 	ipa3_ctx->stats.page_recycle_stats[1].total_replenished = 0;
@@ -7221,6 +7463,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->rmnet_ctl_enable = resource_p->rmnet_ctl_enable;
 	ipa3_ctx->tx_wrapper_cache_max_size = get_tx_wrapper_cache_size(
 			resource_p->tx_wrapper_cache_max_size);
+	ipa3_ctx->ipa_config_is_auto = resource_p->ipa_config_is_auto;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -7962,6 +8205,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	u32 ipa_holb_monitor_max_cnt_wlan;
 	u32 ipa_holb_monitor_max_cnt_usb;
 	u32 ipa_holb_monitor_max_cnt_11ad;
+	u32 ipa_wan_aggr_pkt_cnt;
 
 	/* initialize ipa3_res */
 	ipa_drv_res->ipa_pipe_mem_start_ofst = IPA_PIPE_MEM_START_OFST;
@@ -7991,6 +8235,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->ipa_endp_delay_wa = false;
 	ipa_drv_res->skip_ieob_mask_wa = false;
 	ipa_drv_res->ipa_gpi_event_rp_ddr = false;
+	ipa_drv_res->ipa_config_is_auto = false;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -8096,6 +8341,13 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": WDI-2.0 = %s\n",
 			ipa_drv_res->ipa_wdi2
 			? "True" : "False");
+
+	ipa_drv_res->ipa_config_is_auto =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,ipa-config-is-auto");
+	IPADBG(": ipa-config-is-auto = %s\n",
+		ipa_drv_res->ipa_config_is_auto
+		? "True" : "False");
 
 	ipa_drv_res->ipa_wan_skb_page =
 			of_property_read_bool(pdev->dev.of_node,
@@ -8517,6 +8769,19 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 
 	IPADBG(": secure-debug-check-action = %d\n",
 		   ipa_drv_res->secure_debug_check_action);
+
+
+	result = of_property_read_u32(
+		pdev->dev.of_node,
+		"qcom,ipa-wan-aggr-pkt-cnt",
+		&ipa_wan_aggr_pkt_cnt);
+	if (result) {
+		ipa_wan_aggr_pkt_cnt = IPA_WAN_AGGR_PKT_CNT;
+		IPADBG("ipa wan aggr pkt cnt = %u\n", ipa_wan_aggr_pkt_cnt);
+	} else
+		IPADBG("ipa wan aggr pkt cnt = %u\n", ipa_wan_aggr_pkt_cnt);
+
+	ipa_drv_res->ipa_wan_aggr_pkt_cnt = ipa_wan_aggr_pkt_cnt;
 
 	get_dts_tx_wrapper_cache_size(pdev, ipa_drv_res);
 

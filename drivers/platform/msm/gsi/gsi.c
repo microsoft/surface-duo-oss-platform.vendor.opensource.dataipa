@@ -992,13 +992,10 @@ static void gsi_handle_general(int ee)
 	gsihal_write_reg_n(GSI_EE_n_CNTXT_GSI_IRQ_CLR, ee, val);
 }
 
-#define GSI_ISR_MAX_ITER 50
-
 static void gsi_handle_irq(void)
 {
 	uint32_t type;
 	int ee = gsi_ctx->per.ee;
-	unsigned long cnt = 0;
 	int index;
 	struct gsihal_reg_ctx_type_irq ctx_type_irq;
 
@@ -1046,15 +1043,6 @@ static void gsi_handle_irq(void)
 
 		if (ctx_type_irq.general)
 			gsi_handle_general(ee);
-
-		if (++cnt > GSI_ISR_MAX_ITER) {
-			/*
-			 * Max number of spurious interrupts from hardware.
-			 * Unexpected hardware state.
-			 */
-			GSIERR("Too many spurious interrupt from GSI HW\n");
-			GSI_ASSERT();
-		}
 
 	}
 }
@@ -2392,6 +2380,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_AQC:
 	case GSI_CHAN_PROT_11AD:
 	case GSI_CHAN_PROT_RTK:
+	case GSI_CHAN_PROT_QDSS:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:
@@ -3075,6 +3064,7 @@ int gsi_start_channel(unsigned long chan_hdl)
 		 */
 		GSIERR("chan=%lu timed out, unexpected state=%u\n",
 			chan_hdl, ctx->state);
+		gsi_dump_ch_info(chan_hdl);
 		GSI_ASSERT();
 	}
 
@@ -3089,6 +3079,95 @@ int gsi_start_channel(unsigned long chan_hdl)
 	return GSI_STATUS_SUCCESS;
 }
 EXPORT_SYMBOL(gsi_start_channel);
+
+void gsi_dump_ch_info(unsigned long chan_hdl)
+{
+	uint32_t val;
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIDBG("invalid chan id %u\n", chan_hdl);
+		return;
+	}
+
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_0,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX0  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_1,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX1  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_2,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX2  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_3,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX3  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_4,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX4  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_5,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX5  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_6,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX6  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_7,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d CTX7  0x%x\n", chan_hdl, val);
+	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_8,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d CTX8  0x%x\n", chan_hdl, val);
+	}
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_RE_FETCH_READ_PTR,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d REFRP 0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_RE_FETCH_WRITE_PTR,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d REFWP 0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_QOS,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d QOS   0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_0,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d SCR0  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_1,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d SCR1  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_2,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d SCR2  0x%x\n", chan_hdl, val);
+	val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_3,
+		gsi_ctx->per.ee, chan_hdl);
+	GSIERR("CH%2d SCR3  0x%x\n", chan_hdl, val);
+	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_4,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d SCR4  0x%x\n", chan_hdl, val);
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_5,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d SCR5  0x%x\n", chan_hdl, val);
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_6,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d SCR6  0x%x\n", chan_hdl, val);
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_7,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d SCR7  0x%x\n", chan_hdl, val);
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_8,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d SCR8  0x%x\n", chan_hdl, val);
+		val = gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_SCRATCH_9,
+			gsi_ctx->per.ee, chan_hdl);
+		GSIERR("CH%2d SCR9  0x%x\n", chan_hdl, val);
+	}
+
+	return;
+}
+EXPORT_SYMBOL(gsi_dump_ch_info);
 
 int gsi_stop_channel(unsigned long chan_hdl)
 {
@@ -3140,7 +3219,7 @@ int gsi_stop_channel(unsigned long chan_hdl)
 	gsihal_write_reg_n_fields(GSI_EE_n_GSI_CH_CMD,
 		gsi_ctx->per.ee, &ch_cmd);
 
-	GSIDBG("GSI Channel Stop, waiting for completion\n");
+	GSIDBG("GSI Channel Stop, waiting for completion: 0x%x\n", val);
 	gsi_channel_state_change_wait(chan_hdl,
 		ctx,
 		GSI_STOP_CMD_TIMEOUT_MS, op);
@@ -3148,6 +3227,7 @@ int gsi_stop_channel(unsigned long chan_hdl)
 	if (ctx->state != GSI_CHAN_STATE_STOPPED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC) {
 		GSIERR("chan=%lu unexpected state=%u\n", chan_hdl, ctx->state);
+		gsi_dump_ch_info(chan_hdl);
 		res = -GSI_STATUS_BAD_STATE;
 		BUG();
 		goto free_lock;
@@ -3888,6 +3968,12 @@ int gsi_poll_n_channel(unsigned long chan_hdl,
 	if (ctx->props.prot != GSI_CHAN_PROT_GPI &&
 		ctx->props.prot != GSI_CHAN_PROT_GCI) {
 		GSIERR("op not supported for protocol %u\n", ctx->props.prot);
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
+
+	/* Before going to poll packet make sure it was in allocated state */
+	if (unlikely(ctx->state  == GSI_CHAN_STATE_NOT_ALLOCATED)) {
+		GSIERR("bad state %d\n", ctx->state);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
 

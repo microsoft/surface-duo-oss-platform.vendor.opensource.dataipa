@@ -65,6 +65,8 @@
 #define IPA_UC_FINISH_MAX 6
 #define IPA_UC_WAIT_MIN_SLEEP 1000
 #define IPA_UC_WAII_MAX_SLEEP 1200
+#define IPA_HOLB_TMR_DIS 0x0
+#define IPA_HOLB_TMR_EN 0x1
 #define IPA_HOLB_TMR_VAL_4_5 31
 /*
  * The transport descriptor size was changed to GSI_CHAN_RE_SIZE_16B, but
@@ -81,6 +83,8 @@
 #define NAPI_WEIGHT 64
 
 #define NAPI_TX_WEIGHT 64
+
+#define IPA_WAN_AGGR_PKT_CNT 1
 
 #define IPADBG(fmt, args...) \
 	do { \
@@ -452,6 +456,8 @@ enum {
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
 
 #define MBOX_TOUT_MS 100
+
+#define IPA_RULE_CNT_MAX 512
 
 /* miscellaneous for rmnet_ipa and qmi_service */
 enum ipa_type_mode {
@@ -1927,6 +1933,7 @@ struct ipa3_eth_error_stats {
  * @logbuf: ipc log buffer for high priority messages
  * @logbuf_low: ipc log buffer for low priority messages
  * @ipa_wdi2: using wdi-2.0
+ * @ipa_config_is_auto: is this AUTO use case
  * @ipa_fltrt_not_hashable: filter/route rules not hashable
  * @use_xbl_boot: use xbl loading for IPA FW
  * @use_64_bit_dma_mask: using 64bits dma mask
@@ -2051,6 +2058,7 @@ struct ipa3_context {
 	bool use_ipa_teth_bridge;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
+	bool ipa_config_is_auto;
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
 	bool ipa_endp_delay_wa;
@@ -2163,6 +2171,7 @@ struct ipa3_context {
 	char *uc_fw_file_name;
 	struct ipa3_eth_info
 		eth_info[IPA_ETH_CLIENT_MAX][IPA_ETH_INST_ID_MAX];
+	u32 ipa_wan_aggr_pkt_cnt;
 };
 
 struct ipa3_plat_drv_res {
@@ -2185,6 +2194,7 @@ struct ipa3_plat_drv_res {
 	u32 ee;
 	bool modem_cfg_emb_pipe_flt;
 	bool ipa_wdi2;
+	bool ipa_config_is_auto;
 	bool ipa_wdi2_over_gsi;
 	bool ipa_wdi3_over_gsi;
 	bool ipa_fltrt_not_hashable;
@@ -2228,6 +2238,7 @@ struct ipa3_plat_drv_res {
 	const char *gsi_fw_file_name;
 	const char *uc_fw_file_name;
 	u32 tx_wrapper_cache_max_size;
+	u32 ipa_wan_aggr_pkt_cnt;
 };
 
 /**
@@ -2429,6 +2440,8 @@ struct ipa3_mem_partition {
 	u32 stats_tethering_size;
 	u32 stats_fnr_ofst;
 	u32 stats_fnr_size;
+	u32 uc_ofst;
+	u32 uc_size;
 
 	/* Irrelevant starting IPA4.5 */
 	u32 stats_flt_v4_ofst;
@@ -2543,6 +2556,8 @@ void ipa3_cal_ep_holb_scale_base_val(u32 tmr_val,
 				struct ipa_ep_cfg_holb *ep_holb);
 
 int ipa3_cfg_ep_cfg(u32 clnt_hdl, const struct ipa_ep_cfg_cfg *ipa_ep_cfg);
+
+int ipa3_force_cfg_ep_holb(u32 clnt_hdl, struct ipa_ep_cfg_holb *ipa_ep_cfg);
 
 int ipa3_cfg_ep_metadata_mask(u32 clnt_hdl,
 		const struct ipa_ep_cfg_metadata_mask *ipa_ep_cfg);
@@ -2851,6 +2866,12 @@ void ipa3_eth_debugfs_init(void);
 void ipa3_eth_debugfs_add(struct ipa_eth_client *client);
 
 void ipa3_dump_buff_internal(void *base, dma_addr_t phy_base, u32 size);
+
+void ipa3_qdss_register(void);
+int ipa3_conn_qdss_pipes(struct ipa_qdss_conn_in_params *in,
+	struct ipa_qdss_conn_out_params *out);
+int ipa3_disconn_qdss_pipes(void);
+
 #ifdef IPA_DEBUG
 #define IPA_DUMP_BUFF(base, phy_base, size) \
 	ipa3_dump_buff_internal(base, phy_base, size)
@@ -2903,6 +2924,8 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup);
 int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx);
 int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx);
 int ipa3_query_intf_ext_props(struct ipa_ioc_query_intf_ext_props *ext);
+
+int ipa3_get_max_pdn(void);
 
 void wwan_cleanup(void);
 
