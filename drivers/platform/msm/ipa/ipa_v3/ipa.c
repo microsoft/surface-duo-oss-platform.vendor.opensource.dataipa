@@ -4387,13 +4387,20 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 	/* Remove delay from Q6 PRODs to avoid pending descriptors
 	 * on pipe reset procedure
 	 */
+
 	if (!ipa3_ctx->ipa_endp_delay_wa) {
 		ipa3_q6_pipe_delay(false);
 		ipa3_set_reset_client_prod_pipe_delay(true,
 			IPA_CLIENT_USB_PROD);
+		if (ipa3_ctx->ipa_config_is_auto)
+			ipa3_set_reset_client_prod_pipe_delay(true,
+				IPA_CLIENT_USB2_PROD);
 	} else {
 		ipa3_start_stop_client_prod_gsi_chnl(IPA_CLIENT_USB_PROD,
 						false);
+		if (ipa3_ctx->ipa_config_is_auto)
+			ipa3_start_stop_client_prod_gsi_chnl(
+				IPA_CLIENT_USB2_PROD, false);
 	}
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
@@ -6413,6 +6420,7 @@ static enum gsi_ver ipa3_get_gsi_ver(enum ipa_hw_type ipa_hw_type)
 		gsi_ver = GSI_VER_2_11;
 		break;
 	case IPA_HW_v5_0:
+	case IPA_HW_v5_1:
 		gsi_ver = GSI_VER_3_0;
 		break;
 	default:
