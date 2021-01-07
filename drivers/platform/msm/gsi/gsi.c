@@ -776,13 +776,10 @@ static void gsi_handle_general(int ee)
 			GSI_EE_n_CNTXT_GSI_IRQ_CLR_OFFS(ee));
 }
 
-#define GSI_ISR_MAX_ITER 50
-
 static void gsi_handle_irq(void)
 {
 	uint32_t type;
 	int ee = gsi_ctx->per.ee;
-	unsigned long cnt = 0;
 	int index;
 
 	while (1) {
@@ -829,15 +826,6 @@ static void gsi_handle_irq(void)
 
 		if (type & GSI_EE_n_CNTXT_TYPE_IRQ_GENERAL_BMSK)
 			gsi_handle_general(ee);
-
-		if (++cnt > GSI_ISR_MAX_ITER) {
-			/*
-			 * Max number of spurious interrupts from hardware.
-			 * Unexpected hardware state.
-			 */
-			GSIERR("Too many spurious interrupt from GSI HW\n");
-			GSI_ASSERT();
-		}
 
 	}
 }
@@ -4005,6 +3993,12 @@ int gsi_poll_n_channel(unsigned long chan_hdl,
 	if (ctx->props.prot != GSI_CHAN_PROT_GPI &&
 		ctx->props.prot != GSI_CHAN_PROT_GCI) {
 		GSIERR("op not supported for protocol %u\n", ctx->props.prot);
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
+
+	/* Before going to poll packet make sure it was in allocated state */
+	if (unlikely(ctx->state  == GSI_CHAN_STATE_NOT_ALLOCATED)) {
+		GSIERR("bad state %d\n", ctx->state);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
 
