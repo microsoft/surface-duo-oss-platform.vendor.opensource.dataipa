@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -145,6 +145,11 @@ static struct ipa3_plat_drv_res ipa3_res = {0, };
 static struct clk *ipa3_clk;
 
 struct ipa3_context *ipa3_ctx = NULL;
+/* ipa_i.h is included in ipa_client modules and ipa3_ctx is
+ * declared as extern in ipa_i.h. So export ipa3_ctx variable
+ * to be visible to ipa_client module.
+*/
+EXPORT_SYMBOL(ipa3_ctx);
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p);
 int ipa3_pci_drv_probe(
@@ -629,7 +634,7 @@ static int ipa3_active_clients_log_init(void)
 			GFP_KERNEL);
 	active_clients_table_buf = kzalloc(sizeof(
 			char[IPA3_ACTIVE_CLIENTS_TABLE_BUF_SIZE]), GFP_KERNEL);
-	if (ipa3_ctx->ipa3_active_clients_logging.log_buffer == NULL) {
+	if (ipa3_ctx->ipa3_active_clients_logging.log_buffer[0] == NULL) {
 		pr_err("Active Clients Logging memory allocation failed\n");
 		goto bail;
 	}
@@ -6604,11 +6609,16 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* The following will retrieve and save the gsi fw version */
 	ipa_save_gsi_ver();
 
-	if (ipahal_init(ipa3_ctx->ipa_hw_type, ipa3_ctx->mmio,
-		ipa3_ctx->ipa_cfg_offset, ipa3_ctx->pdev)) {
-		IPAERR("fail to init ipahal\n");
-		result = -EFAULT;
-		goto fail_ipahal;
+	/* IPA version 3.0 IPAHAL initialized at pre_init as there is no SMMU.
+	 * In normal mode need to wait until SMMU is attached and
+         * thus initialization done here*/
+	if (ipa3_ctx->ipa_hw_type != IPA_HW_v3_0) {
+		if (ipahal_init(ipa3_ctx->ipa_hw_type, ipa3_ctx->mmio,
+				ipa3_ctx->ipa_cfg_offset, ipa3_ctx->pdev)) {
+			IPAERR("fail to init ipahal\n");
+			result = -EFAULT;
+			goto fail_ipahal;
+		}
 	}
 
 	result = ipa3_init_hw();
@@ -7394,8 +7404,10 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENOMEM;
 		goto fail_mem_ctx;
 	}
-
-	ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_INIT;
+	/* If SMMU not support fw load state will be updated
+	 * in probe function. Avoid overwriting in pre-init function */
+	if (ipa3_ctx->fw_load_data.state != IPA_FW_LOAD_STATE_SMMU_DONE)
+		ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_INIT;
 	mutex_init(&ipa3_ctx->fw_load_data.lock);
 
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", 0);
@@ -7659,6 +7671,17 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	    resource_p->ipa_mem_base + ipa3_ctx->ctrl->ipa_reg_base_ofst,
 	    ipa3_ctx->mmio,
 	    resource_p->ipa_mem_size);
+
+	/* IPA version 3.0 IPAHAL used to load the firmwares and
+	 * there is no SMMU so IPAHAL is initialized here.*/
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v3_0) {
+		if (ipahal_init(ipa3_ctx->ipa_hw_type, ipa3_ctx->mmio,
+				ipa3_ctx->ipa_cfg_offset, &ipa3_ctx->master_pdev->dev)) {
+			IPAERR("fail to init ipahal\n");
+			result = -EFAULT;
+			goto fail_remap;
+		}
+	}
 
 	/*
 	 * Setup access for register collection/dump on crash
@@ -7929,11 +7952,13 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_wwan_init;
 	}
 
-	result = ipa3_rmnet_ctl_init();
-	if (result) {
-		IPAERR(":ipa3_rmnet_ctl_init err=%d\n", -result);
-		result = -ENODEV;
-		goto fail_rmnet_ctl_init;
+	if (ipa3_ctx->rmnet_ctl_enable) {
+		result = ipa3_rmnet_ctl_init();
+		if (result) {
+			IPAERR(":ipa3_rmnet_ctl_init err=%d\n", -result);
+			result = -ENODEV;
+			goto fail_rmnet_ctl_init;
+		}
 	}
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
