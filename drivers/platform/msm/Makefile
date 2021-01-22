@@ -1,49 +1,13 @@
-# SPDX-License-Identifier: GPL-2.0-only
-
-#MSMs - GKI
-ifeq ($(filter $(CONFIG_ARCH_LAHAINA) $(CONFIG_ARCH_HOLI), y),y)
-LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa.h
-ifeq ($(CONFIG_QGKI),y)
-include $(srctree)/techpack/dataipa/config/dataipa_QGKI.conf
-ifeq ($(CONFIG_LOCALVERSION), "-qgki-debug")
-include $(srctree)/techpack/dataipa/config/dataipa_debug.conf
-LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
-endif
-else
-include $(srctree)/techpack/dataipa/config/dataipa_GKI.conf
-endif
+ifeq ($(KP_MODULE_ROOT),)
+KP_MODULE_ROOT=$(KERNEL_SRC)/$(M)
 endif
 
+KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
 
-#MDMs
-ifeq ($(CONFIG_ARCH_SDXLEMUR), y)
-LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa.h
-include $(srctree)/techpack/dataipa/config/dataipa_QGKI.conf
-ifneq ($(CONFIG_LOCALVERSION), "-perf")
-include $(srctree)/techpack/dataipa/config/dataipa_debug.conf
-LINUXINCLUDE    += -include $(srctree)/techpack/dataipa/config/dataipa_debug.h
-endif
-endif
+all: modules # dtbs
 
-DATAIPADRVTOP = $(srctree)/techpack/dataipa/drivers/platform/msm
+clean:
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) clean
 
-ifneq (,$(filter $(CONFIG_IPA3) $(CONFIG_GSI),y m))
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/gsi
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/gsi/gsihal
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/ipahal
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_clients
-endif
-
-ifneq (,$(filter $(CONFIG_IPA3_REGDUMP),y m))
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/dump
-endif
-
-ifneq (,$(filter $(CONFIG_IPA3_REGDUMP_IPA_4_5),y m))
-LINUXINCLUDE += -I$(DATAIPADRVTOP)/ipa/ipa_v3/dump/ipa4.5
-endif
-
-
-obj-$(CONFIG_GSI) += gsi/
-obj-$(CONFIG_IPA3) += ipa/
+%:
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) $@ $(KBUILD_OPTIONS)

@@ -157,6 +157,12 @@ static const char *ipareg_name_to_str[IPA_REG_MAX] = {
 	__stringify(IPA_FILT_ROUT_CACHE_FLUSH),
 	__stringify(IPA_FILTER_CACHE_CFG_n),
 	__stringify(IPA_ROUTER_CACHE_CFG_n),
+	__stringify(IPA_NAT_UC_EXTERNAL_CFG),
+	__stringify(IPA_NAT_UC_LOCAL_CFG),
+	__stringify(IPA_NAT_UC_SHARED_CFG),
+	__stringify(IPA_CONN_TRACK_UC_EXTERNAL_CFG),
+	__stringify(IPA_CONN_TRACK_UC_LOCAL_CFG),
+	__stringify(IPA_CONN_TRACK_UC_SHARED_CFG)
 };
 
 static void ipareg_construct_dummy(enum ipahal_reg_name reg,
@@ -3116,6 +3122,176 @@ static void ipareg_parse_ipa_flavor_0(enum ipahal_reg_name reg,
 		IPA_FLAVOR_0_IPA_PROD_LOWEST_BMSK);
 }
 
+static void ipareg_construct_nat_uc_external_cfg(enum ipahal_reg_name reg,
+	const void *fields, u32 *val)
+{
+	struct ipahal_reg_nat_uc_external_cfg *nat_uc_external_cfg =
+		(struct ipahal_reg_nat_uc_external_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val,
+		nat_uc_external_cfg->nat_uc_external_table_addr_lsb,
+		IPA_NAT_UC_EXTERNAL_CFG_SHFT, IPA_NAT_UC_EXTERNAL_CFG_BMSK);
+}
+
+static void ipareg_parse_nat_uc_external_cfg(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipahal_reg_nat_uc_external_cfg *nat_uc_external_cfg =
+		(struct ipahal_reg_nat_uc_external_cfg *)fields;
+
+	memset(nat_uc_external_cfg, 0, sizeof(*nat_uc_external_cfg));
+
+	nat_uc_external_cfg->nat_uc_external_table_addr_lsb =
+		IPA_GETFIELD_FROM_REG(val, IPA_NAT_UC_EXTERNAL_CFG_SHFT,
+			IPA_NAT_UC_EXTERNAL_CFG_BMSK);
+}
+
+static void ipareg_construct_nat_uc_local_cfg(enum ipahal_reg_name reg,
+	const void *fields, u32 *val)
+{
+	struct ipahal_reg_nat_uc_local_cfg *nat_uc_local_cfg =
+		(struct ipahal_reg_nat_uc_local_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val, nat_uc_local_cfg->nat_uc_local_table_addr_lsb,
+		IPA_NAT_UC_LOCAL_CFG_SHFT, IPA_NAT_UC_LOCAL_CFG_BMSK);
+}
+
+static void ipareg_parse_nat_uc_local_cfg(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipahal_reg_nat_uc_local_cfg *nat_uc_local_cfg =
+		(struct ipahal_reg_nat_uc_local_cfg *)fields;
+
+	memset(nat_uc_local_cfg, 0, sizeof(*nat_uc_local_cfg));
+
+	nat_uc_local_cfg->nat_uc_local_table_addr_lsb =
+		IPA_GETFIELD_FROM_REG(val, IPA_NAT_UC_LOCAL_CFG_SHFT,
+			IPA_NAT_UC_LOCAL_CFG_BMSK);
+}
+
+static void ipareg_construct_nat_uc_shared_cfg(enum ipahal_reg_name reg,
+	const void *fields, u32 *val)
+{
+	struct ipahal_reg_nat_uc_shared_cfg *nat_uc_shared_cfg =
+		(struct ipahal_reg_nat_uc_shared_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val,
+		nat_uc_shared_cfg->nat_uc_local_table_addr_msb,
+		IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
+		IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
+
+	IPA_SETFIELD_IN_REG(*val,
+		nat_uc_shared_cfg->nat_uc_external_table_addr_msb,
+		IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
+		IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
+}
+
+static void ipareg_parse_nat_uc_shared_cfg(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipahal_reg_nat_uc_shared_cfg *nat_uc_shared_cfg =
+		(struct ipahal_reg_nat_uc_shared_cfg *)fields;
+
+	memset(nat_uc_shared_cfg, 0, sizeof(*nat_uc_shared_cfg));
+
+	nat_uc_shared_cfg->nat_uc_local_table_addr_msb =
+		IPA_GETFIELD_FROM_REG(val,
+			IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
+			IPA_NAT_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
+
+	nat_uc_shared_cfg->nat_uc_external_table_addr_msb =
+		IPA_GETFIELD_FROM_REG(val,
+			IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
+			IPA_NAT_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
+}
+
+static void ipareg_construct_conn_track_uc_external_cfg
+	(enum ipahal_reg_name reg, const void *fields, u32 *val)
+{
+	struct ipahal_reg_conn_track_uc_external_cfg *conn_track_uc_external_cfg
+		= (struct ipahal_reg_conn_track_uc_external_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val,
+	conn_track_uc_external_cfg->conn_track_uc_external_table_addr_lsb,
+		IPA_CONN_TRACK_UC_EXTERNAL_CFG_SHFT,
+		IPA_CONN_TRACK_UC_EXTERNAL_CFG_BMSK);
+}
+
+static void ipareg_parse_conn_track_uc_external_cfg(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipahal_reg_conn_track_uc_external_cfg *conn_track_uc_external_cfg
+		= (struct ipahal_reg_conn_track_uc_external_cfg *)fields;
+
+	memset(conn_track_uc_external_cfg, 0,
+		sizeof(*conn_track_uc_external_cfg));
+
+	conn_track_uc_external_cfg->conn_track_uc_external_table_addr_lsb =
+		IPA_GETFIELD_FROM_REG(val, IPA_CONN_TRACK_UC_EXTERNAL_CFG_SHFT,
+			IPA_CONN_TRACK_UC_EXTERNAL_CFG_BMSK);
+}
+
+static void ipareg_construct_conn_track_uc_local_cfg(enum ipahal_reg_name reg,
+	const void *fields, u32 *val)
+{
+	struct ipahal_reg_conn_track_uc_local_cfg *conn_track_uc_local_cfg =
+		(struct ipahal_reg_conn_track_uc_local_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val,
+		conn_track_uc_local_cfg->conn_track_uc_local_table_addr_lsb,
+		IPA_CONN_TRACK_UC_LOCAL_CFG_SHFT,
+		IPA_CONN_TRACK_UC_LOCAL_CFG_BMSK);
+}
+
+static void ipareg_parse_conn_track_uc_local_cfg(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipahal_reg_conn_track_uc_local_cfg *conn_track_uc_local_cfg =
+		(struct ipahal_reg_conn_track_uc_local_cfg *)fields;
+
+	memset(conn_track_uc_local_cfg, 0, sizeof(*conn_track_uc_local_cfg));
+
+	conn_track_uc_local_cfg->conn_track_uc_local_table_addr_lsb =
+		IPA_GETFIELD_FROM_REG(val, IPA_CONN_TRACK_UC_LOCAL_CFG_SHFT,
+			IPA_CONN_TRACK_UC_LOCAL_CFG_BMSK);
+}
+
+static void ipareg_construct_conn_track_uc_shared_cfg(enum ipahal_reg_name reg,
+	const void *fields, u32 *val)
+{
+	struct ipahal_reg_conn_track_uc_shared_cfg *conn_track_uc_shared_cfg =
+		(struct ipahal_reg_conn_track_uc_shared_cfg *)fields;
+
+	IPA_SETFIELD_IN_REG(*val,
+		conn_track_uc_shared_cfg->conn_track_uc_local_table_addr_msb,
+		IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
+		IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
+
+	IPA_SETFIELD_IN_REG(*val,
+		conn_track_uc_shared_cfg->conn_track_uc_external_table_addr_msb,
+		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
+		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
+}
+
+static void ipareg_parse_conn_track_uc_shared_cfg(enum ipahal_reg_name reg,
+	void *fields, u32 val)
+{
+	struct ipahal_reg_conn_track_uc_shared_cfg *conn_track_uc_shared_cfg =
+		(struct ipahal_reg_conn_track_uc_shared_cfg *)fields;
+
+	memset(conn_track_uc_shared_cfg, 0, sizeof(*conn_track_uc_shared_cfg));
+
+	conn_track_uc_shared_cfg->conn_track_uc_local_table_addr_msb =
+		IPA_GETFIELD_FROM_REG(val,
+			IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_SHFT,
+			IPA_CONN_TRACK_UC_SHARED_CFG_LOCAL_TABLE_ADDR_MSB_BMSK);
+
+	conn_track_uc_shared_cfg->conn_track_uc_external_table_addr_msb =
+		IPA_GETFIELD_FROM_REG(val,
+		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_SHFT,
+		IPA_CONN_TRACK_UC_SHARED_CFG_EXTERNAL_TABLE_ADDR_MSB_BMSK);
+}
+
 /*
  * struct ipahal_reg_obj - Register H/W information for specific IPA version
  * @construct - CB to construct register value from abstracted structure
@@ -3323,10 +3499,10 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 		ipareg_construct_rx_hps_clients_depth1, ipareg_parse_dummy,
 		0x000023D0, 0, 0, 0, 0, 0},
 	[IPA_HW_v3_0][IPA_QSB_MAX_WRITES] = {
-		ipareg_construct_qsb_max_writes, ipareg_parse_dummy,
+		ipareg_construct_qsb_max_writes, ipareg_parse_qsb_max_writes,
 		0x00000074, 0, 0, 0, 0, 0},
 	[IPA_HW_v3_0][IPA_QSB_MAX_READS] = {
-		ipareg_construct_qsb_max_reads, ipareg_parse_dummy,
+		ipareg_construct_qsb_max_reads, ipareg_parse_qsb_max_reads,
 		0x00000078, 0, 0, 0, 0, 0},
 	[IPA_HW_v3_0][IPA_DPS_SEQUENCER_FIRST] = {
 		ipareg_construct_dummy, ipareg_parse_dummy,
@@ -3910,6 +4086,30 @@ static struct ipahal_reg_obj ipahal_reg_objs[IPA_HW_MAX][IPA_REG_MAX] = {
 	[IPA_HW_v4_5][IPA_COAL_QMAP_CFG] = {
 		ipareg_construct_coal_qmap_cfg, ipareg_parse_coal_qmap_cfg,
 		0x00001810, 0, 0, 0, 0, 0},
+	[IPA_HW_v4_5][IPA_NAT_UC_EXTERNAL_CFG] = {
+		ipareg_construct_nat_uc_external_cfg,
+		ipareg_parse_nat_uc_external_cfg,
+		0x00000200, 0, 0, 0, 0, 0},
+	[IPA_HW_v4_5][IPA_NAT_UC_LOCAL_CFG] = {
+		ipareg_construct_nat_uc_local_cfg,
+		ipareg_parse_nat_uc_local_cfg,
+		0x00000204, 0, 0, 0, 0, 0},
+	[IPA_HW_v4_5][IPA_NAT_UC_SHARED_CFG] = {
+		ipareg_construct_nat_uc_shared_cfg,
+		ipareg_parse_nat_uc_shared_cfg,
+		0x00000208, 0, 0, 0, 0, 0},
+	[IPA_HW_v4_5][IPA_CONN_TRACK_UC_EXTERNAL_CFG] = {
+		ipareg_construct_conn_track_uc_external_cfg,
+		ipareg_parse_conn_track_uc_external_cfg,
+		0x00000230, 0, 0, 0, 0, 0},
+	[IPA_HW_v4_5][IPA_CONN_TRACK_UC_LOCAL_CFG] = {
+		ipareg_construct_conn_track_uc_local_cfg,
+		ipareg_parse_conn_track_uc_local_cfg,
+		0x00000234, 0, 0, 0, 0, 0},
+	[IPA_HW_v4_5][IPA_CONN_TRACK_UC_SHARED_CFG] = {
+		ipareg_construct_conn_track_uc_shared_cfg,
+		ipareg_parse_conn_track_uc_shared_cfg,
+		0x00000238, 0, 0, 0, 0, 0},
 	[IPA_HW_v4_7][IPA_STATE_TX_WRAPPER] = {
 		ipareg_construct_dummy, ipareg_parse_state_tx_wrapper_v4_7,
 		0x00000090, 0, 0, 0, 1, 0},
@@ -4757,7 +4957,7 @@ u32 ipahal_get_reg_nk_offset(enum ipahal_reg_name reg, u32 n, u32 k)
 
 u32 ipahal_get_reg_base(void)
 {
-	if (ipahal_ctx->ipa_cfg_offset == 0)
+	if (!ipahal_ctx || ipahal_ctx->ipa_cfg_offset == 0)
 		return 0x00040000;
 	else
 		return ipahal_ctx->ipa_cfg_offset;
@@ -4815,7 +5015,7 @@ void ipahal_get_aggr_force_close_valmask(int ep_idx,
 		IPA_AGGR_FORCE_CLOSE_AGGR_FORCE_CLOSE_PIPE_BITMAP_SHFT_V4_9;
 		bmsk =
 		IPA_AGGR_FORCE_CLOSE_AGGR_FORCE_CLOSE_PIPE_BITMAP_BMSK_V4_9;
-	} else if (ipahal_ctx->hw_type <= IPA_HW_v5_0) {
+	} else if (ipahal_ctx->hw_type <= IPA_HW_v5_1) {
 		u8 reg_idx;
 
 		shft =

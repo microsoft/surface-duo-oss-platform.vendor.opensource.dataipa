@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  */
 
 /*
@@ -24,6 +24,7 @@
 #include <net/pkt_sched.h>
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
+#include <linux/remoteproc/qcom_rproc.h>
 #include "ipa_qmi_service.h"
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include <linux/ipa.h>
@@ -177,6 +178,7 @@ struct rmnet_ipa3_context {
 
 static struct rmnet_ipa3_context *rmnet_ipa3_ctx;
 static struct ipa3_rmnet_plat_drv_res ipa3_rmnet_res;
+bool ipa_net_initialized = false;
 
 /**
  * ipa3_setup_a7_qmap_hdr() - Setup default a7 qmap hdr
@@ -1308,7 +1310,12 @@ out:
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static void ipa3_wwan_tx_timeout(struct net_device *dev,
+	unsigned int txqueue)
+#else /* Legacy API. */
 static void ipa3_wwan_tx_timeout(struct net_device *dev)
+#endif
 {
 	struct ipa3_wwan_private *wwan_ptr = netdev_priv(dev);
 
@@ -1316,7 +1323,6 @@ static void ipa3_wwan_tx_timeout(struct net_device *dev)
 		IPAWANERR("[%s] data stall in UL, %d outstanding\n",
 			dev->name, atomic_read(&wwan_ptr->outstanding_pkts));
 }
-
 /**
  * apps_ipa_tx_complete_notify() - Rx notify
  *
@@ -2682,9 +2688,11 @@ static int ipa3_wwan_remove(struct platform_device *pdev)
 
 	IPAWANINFO("rmnet_ipa started deinitialization\n");
 	mutex_lock(&rmnet_ipa3_ctx->pipe_handle_guard);
-	ret = ipa3_teardown_apps_low_lat_pipes();
-	if (ret < 0)
-		IPAWANERR("Failed to teardown IPA->APPS qmap pipe\n");
+	if (ipa3_ctx->rmnet_ctl_enable) {
+		ret = ipa3_teardown_apps_low_lat_pipes();
+		if (ret < 0)
+			IPAWANERR("Failed to teardown IPA->APPS qmap pipe\n");
+	}
 	ret = ipa3_teardown_sys_pipe(rmnet_ipa3_ctx->ipa3_to_apps_hdl);
 	if (ret < 0)
 		IPAWANERR("Failed to teardown IPA->APPS pipe\n");
@@ -2883,7 +2891,11 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 	}
 
 	switch (code) {
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_BEFORE_SHUTDOWN:
+#else
 	case SUBSYS_BEFORE_SHUTDOWN:
+#endif
 		IPAWANINFO("IPA received MPSS BEFORE_SHUTDOWN\n");
 		/* send SSR before-shutdown notification to IPACM */
 		rmnet_ipa_send_ssr_notification(false);
@@ -2896,14 +2908,19 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		ipa_stop_polling_stats();
 		if (atomic_read(&rmnet_ipa3_ctx->is_initialized))
 			platform_driver_unregister(&rmnet_ipa_driver);
-		imp_handle_modem_shutdown();
+		if (ipa3_ctx->ipa_mhi_proxy)
+			imp_handle_modem_shutdown();
 		if (atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
 			ipa3_ctx_get_type(IPA_HW_TYPE) >= IPA_HW_v4_0)
 			ipa3_q6_post_shutdown_cleanup();
 		ipa3_odl_pipe_cleanup(true);
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
 		break;
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_AFTER_SHUTDOWN:
+#else
 	case SUBSYS_AFTER_SHUTDOWN:
+#endif
 		IPAWANINFO("IPA Received MPSS AFTER_SHUTDOWN\n");
 		if (atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
 			ipa3_ctx_get_type(IPA_HW_TYPE) < IPA_HW_v4_0)
@@ -2914,7 +2931,11 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 
 		IPAWANINFO("IPA AFTER_SHUTDOWN handling is complete\n");
 		break;
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_BEFORE_POWERUP:
+#else
 	case SUBSYS_BEFORE_POWERUP:
+#endif
 		IPAWANINFO("IPA received MPSS BEFORE_POWERUP\n");
 		if (atomic_read(&rmnet_ipa3_ctx->is_ssr)) {
 			/* clean up cached QMI msg/handlers */
@@ -2926,7 +2947,11 @@ static int ipa3_lcl_mdm_ssr_notifier_cb(struct notifier_block *this,
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_AFTER_POWERUP:
+#else
 	case SUBSYS_AFTER_POWERUP:
+#endif
 		IPAWANINFO("IPA received MPSS AFTER_POWERUP\n");
 		if (!atomic_read(&rmnet_ipa3_ctx->is_initialized) &&
 		       atomic_read(&rmnet_ipa3_ctx->is_ssr))
@@ -2960,16 +2985,32 @@ static int ipa3_rmt_mdm_ssr_notifier_cb(struct notifier_block *this,
 	}
 
 	switch (code) {
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_BEFORE_SHUTDOWN:
+#else
 	case SUBSYS_BEFORE_SHUTDOWN:
+#endif
 		IPAWANINFO("IPA received RMT MPSS BEFORE_SHUTDOWN\n");
 		break;
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_AFTER_SHUTDOWN:
+#else
 	case SUBSYS_AFTER_SHUTDOWN:
+#endif
 		IPAWANINFO("IPA Received RMT MPSS AFTER_SHUTDOWN\n");
 		break;
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_BEFORE_POWERUP:
+#else
 	case SUBSYS_BEFORE_POWERUP:
+#endif
 		IPAWANINFO("IPA received RMT MPSS BEFORE_POWERUP\n");
 		break;
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	case QCOM_SSR_AFTER_POWERUP:
+#else
 	case SUBSYS_AFTER_POWERUP:
+#endif
 		IPAWANINFO("IPA received RMT MPSS AFTER_POWERUP\n");
 		break;
 	default:
@@ -4284,7 +4325,12 @@ void ipa3_q6_handshake_complete(bool ssr_bootup)
 		 */
 		rmnet_ipa_get_network_stats_and_update();
 	}
+
+	if (ipa3_ctx->ipa_mhi_proxy)
 		imp_handle_modem_ready();
+
+	if (ipa3_ctx->ipa_config_is_mhi)
+		ipa_send_mhi_endp_ind_to_modem();
 }
 
 static inline bool rmnet_ipa3_check_any_client_inited
@@ -4658,7 +4704,7 @@ int rmnet_ipa3_query_per_client_stats(
 	/* Check if Source pipe is valid. */
 	if (rmnet_ipa3_ctx->tether_device
 		[data->device_type].ul_src_pipe == -1) {
-		IPAWANERR("Device not initialized: %d\n", data->device_type);
+		IPAWANERR_RL("Device not initialized: %d\n", data->device_type);
 		mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
 		return -EINVAL;
 	}
@@ -4690,7 +4736,7 @@ int rmnet_ipa3_query_per_client_stats(
 		 */
 		if (data->disconnect_clnt &&
 			lan_client->inited) {
-			IPAWANERR("Client not inited. Try again.\n");
+			IPAWANERR_RL("Client not inited. Try again.\n");
 			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
 			return -EAGAIN;
 		}
@@ -4702,7 +4748,7 @@ int rmnet_ipa3_query_per_client_stats(
 		 */
 		if (data->disconnect_clnt &&
 			rmnet_ipa3_check_any_client_inited(data->device_type)) {
-			IPAWANERR("CLient not inited. Try again.\n");
+			IPAWANERR_RL("CLient not inited. Try again.\n");
 			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
 			return -EAGAIN;
 		}
@@ -4826,39 +4872,19 @@ static void rmnet_ipa_debugfs_init(void)
 		return;
 	}
 
-	dbgfs->dfile_outstanding_high = debugfs_create_u32("outstanding_high",
+	debugfs_create_u32("outstanding_high",
 		read_write_mode, dbgfs->dent,
 		&rmnet_ipa3_ctx->outstanding_high);
-	if (!dbgfs->dfile_outstanding_high ||
-		IS_ERR(dbgfs->dfile_outstanding_high)) {
-		pr_err("failed to create file for outstanding_high\n");
-		goto fail;
-	}
 
-	dbgfs->dfile_outstanding_high_ctl =
 		debugfs_create_u32("outstanding_high_ctl",
 		read_write_mode, dbgfs->dent,
 		&rmnet_ipa3_ctx->outstanding_high_ctl);
-	if (!dbgfs->dfile_outstanding_high_ctl ||
-		IS_ERR(dbgfs->dfile_outstanding_high_ctl)) {
-		pr_err("failed to create file for outstanding_high_ctl\n");
-		goto fail;
-	}
 
-	dbgfs->dfile_outstanding_low = debugfs_create_u32("outstanding_low",
+	debugfs_create_u32("outstanding_low",
 		read_write_mode, dbgfs->dent,
 		&rmnet_ipa3_ctx->outstanding_low);
-	if (!dbgfs->dfile_outstanding_low ||
-		IS_ERR(dbgfs->dfile_outstanding_low)) {
-		pr_err("failed to create file for outstanding_low\n");
-		goto fail;
-	}
 
 	return;
-
-fail:
-	debugfs_remove_recursive(dbgfs->dent);
-	memset(dbgfs, 0, sizeof(struct rmnet_ipa_debugfs));
 }
 
 static void rmnet_ipa_debugfs_remove(void)
@@ -4880,8 +4906,12 @@ int ipa3_wwan_platform_driver_register(void)
 	if (rc)
 		IPAWANERR_RL("rmnet_ipa driver register fail rc=%d\n", rc);
 
+	/* We are here, network stack initialization is finished */
+	ipa_net_initialized = true;
+
 	return rc;
 }
+EXPORT_SYMBOL(ipa3_wwan_platform_driver_register);
 
 int ipa3_wwan_init(void)
 {
@@ -4927,8 +4957,13 @@ int ipa3_wwan_init(void)
 	rmnet_ipa_debugfs_init();
 
 	/* Register for Local Modem SSR */
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+	ssr_hdl = qcom_register_ssr_notifier(SUBSYS_LOCAL_MODEM,
+		&ipa3_lcl_mdm_ssr_notifier);
+#else
 	ssr_hdl = subsys_notif_register_notifier(SUBSYS_LOCAL_MODEM,
 		&ipa3_lcl_mdm_ssr_notifier);
+#endif
 	if (!IS_ERR(ssr_hdl))
 		rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle = ssr_hdl;
 	else if (!rmnet_ipa3_ctx->ipa_config_is_apq) {
@@ -4939,8 +4974,13 @@ int ipa3_wwan_init(void)
 
 	if (rmnet_ipa3_ctx->ipa_config_is_apq) {
 		/* Register for Remote Modem SSR */
+	#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+		ssr_hdl = qcom_register_ssr_notifier(SUBSYS_REMOTE_MODEM,
+			&ipa3_rmt_mdm_ssr_notifier);
+	#else
 		ssr_hdl = subsys_notif_register_notifier(SUBSYS_REMOTE_MODEM,
 			&ipa3_rmt_mdm_ssr_notifier);
+	#endif
 		if (IS_ERR(ssr_hdl)) {
 			rc = PTR_ERR(ssr_hdl);
 			IPAWANERR_RL("remote modem ssr register fail rc=%d\n",
@@ -4956,9 +4996,15 @@ int ipa3_wwan_init(void)
 
 fail_unreg_lcl_mdm_ssr:
 	if (rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle) {
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+		qcom_unregister_ssr_notifier(
+			rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle,
+			&ipa3_lcl_mdm_ssr_notifier);
+#else
 		subsys_notif_unregister_notifier(
 			rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle,
 			&ipa3_lcl_mdm_ssr_notifier);
+#endif
 		rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle = NULL;
 	}
 fail_dbgfs_rm:
@@ -4972,18 +5018,30 @@ void ipa3_wwan_cleanup(void)
 
 	platform_driver_unregister(&rmnet_ipa_driver);
 	if (rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle) {
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+		ret = qcom_unregister_ssr_notifier(
+			rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle,
+			&ipa3_lcl_mdm_ssr_notifier);
+#else
 		ret = subsys_notif_unregister_notifier(
 			rmnet_ipa3_ctx->lcl_mdm_subsys_notify_handle,
 			&ipa3_lcl_mdm_ssr_notifier);
+#endif
 		if (ret)
 			IPAWANERR(
 			"Failed to unregister subsys %s notifier ret=%d\n",
 			SUBSYS_LOCAL_MODEM, ret);
 	}
 	if (rmnet_ipa3_ctx->rmt_mdm_subsys_notify_handle) {
+#if IS_ENABLED(CONFIG_QCOM_Q6V5_PAS)
+		ret = qcom_unregister_ssr_notifier(
+			rmnet_ipa3_ctx->rmt_mdm_subsys_notify_handle,
+			&ipa3_rmt_mdm_ssr_notifier);
+#else
 		ret = subsys_notif_unregister_notifier(
 			rmnet_ipa3_ctx->rmt_mdm_subsys_notify_handle,
 			&ipa3_rmt_mdm_ssr_notifier);
+#endif
 		if (ret)
 			IPAWANERR(
 			"Failed to unregister subsys %s notifier ret=%d\n",
@@ -4997,6 +5055,7 @@ void ipa3_wwan_cleanup(void)
 	kfree(rmnet_ipa3_ctx);
 	rmnet_ipa3_ctx = NULL;
 }
+EXPORT_SYMBOL(ipa3_wwan_cleanup);
 
 static void ipa3_wwan_msg_free_cb(void *buff, u32 len, u32 type)
 {

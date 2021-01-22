@@ -2118,7 +2118,7 @@ struct ipa3_context {
 	u32 ipa_tz_unlock_reg_num;
 	struct ipa_tz_unlock_reg_info *ipa_tz_unlock_reg;
 	struct ipa_dma_task_info dma_task_info;
-	struct ipa_hw_stats hw_stats;
+	struct ipa_hw_stats *hw_stats;
 	struct ipa_flt_rt_counter flt_rt_counters;
 	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA_MAX_NUM_REQ_CACHE];
 	int num_ipa_cne_evt_req;
@@ -2172,6 +2172,7 @@ struct ipa3_context {
 	struct ipa3_eth_info
 		eth_info[IPA_ETH_CLIENT_MAX][IPA_ETH_INST_ID_MAX];
 	u32 ipa_wan_aggr_pkt_cnt;
+	bool ipa_mhi_proxy;
 };
 
 struct ipa3_plat_drv_res {
@@ -2239,6 +2240,7 @@ struct ipa3_plat_drv_res {
 	const char *uc_fw_file_name;
 	u32 tx_wrapper_cache_max_size;
 	u32 ipa_wan_aggr_pkt_cnt;
+	bool ipa_mhi_proxy;
 };
 
 /**
@@ -2759,7 +2761,7 @@ void ipa3_release_wdi3_gsi_smmu_mappings(u8 dir);
  * Tethering bridge (Rmnet / MBIM)
  */
 
-int ipa3_teth_bridge_get_pm_hdl(void);
+int ipa3_teth_bridge_get_pm_hdl(enum ipa_client_type client);
 
 /*
  * Tethering client info
@@ -2987,6 +2989,7 @@ int ipa3_mhi_handle_ipa_config_req(struct ipa_config_req_msg_v01 *config_req);
 int ipa3_uc_interface_init(void);
 int ipa3_uc_is_gsi_channel_empty(enum ipa_client_type ipa_client);
 int ipa3_uc_loaded_check(void);
+void ipa3_uc_load_notify(void);
 int ipa3_uc_holb_enabled_check(void);
 int ipa3_uc_register_ready_cb(struct notifier_block *nb);
 int ipa3_uc_unregister_ready_cb(struct notifier_block *nb);
@@ -3018,6 +3021,7 @@ int ipa3_uc_setup_event_ring(void);
 void ipa3_tag_destroy_imm(void *user1, int user2);
 const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
 	(enum ipa_client_type client);
+void ipa3_uc_rg10_write_reg(enum ipahal_reg_name reg, u32 n, u32 val);
 
 int ipa3_wigig_init_i(void);
 

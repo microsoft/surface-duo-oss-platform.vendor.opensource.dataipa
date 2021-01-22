@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -13,9 +13,11 @@
 #include <linux/skbuff.h>
 #include <linux/sched.h>
 #include <linux/atomic.h>
+#include <linux/version.h>
 #include "ecm_ipa.h"
-#include "ipa_common_i.h"
-#include "ipa_pm.h"
+#include "../ipa_common_i.h"
+#include "../ipa_pm.h"
+#include "../ipa_v3/ipa_i.h"
 
 #define DRIVER_NAME "ecm_ipa"
 #define ECM_IPA_IPV4_HDR_NAME "ecm_eth_ipv4"
@@ -175,7 +177,14 @@ static void ecm_ipa_packet_receive_notify
 	(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
 static void ecm_ipa_tx_complete_notify
 	(void *priv, enum ipa_dp_evt_type evt, unsigned long data);
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static void ecm_ipa_tx_timeout(struct net_device *net,
+	unsigned int txqueue);
+#else /* Legacy API. */
 static void ecm_ipa_tx_timeout(struct net_device *net);
+#endif
+
 static int ecm_ipa_stop(struct net_device *net);
 static void ecm_ipa_enable_data_path(struct ecm_ipa_dev *ecm_ipa_ctx);
 static int ecm_ipa_rules_cfg
@@ -659,13 +668,21 @@ static void ecm_ipa_packet_receive_notify
 	packet_len = skb->len;
 	ECM_IPA_DEBUG("packet RX, len=%d\n", skb->len);
 
+	if (unlikely(ecm_ipa_ctx == NULL)) {
+		ECM_IPA_DEBUG("Private context is NULL. Drop SKB.\n");
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
 	if (unlikely(ecm_ipa_ctx->state != ECM_IPA_CONNECTED_AND_UP)) {
 		ECM_IPA_DEBUG("Missing pipe connected and/or iface up\n");
+		dev_kfree_skb_any(skb);
 		return;
 	}
 
 	if (unlikely(evt != IPA_RECEIVE)) {
 		ECM_IPA_ERROR("A none IPA_RECEIVE event in ecm_ipa_receive\n");
+		dev_kfree_skb_any(skb);
 		return;
 	}
 
@@ -1187,7 +1204,12 @@ out:
 	dev_kfree_skb_any(skb);
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static void ecm_ipa_tx_timeout(struct net_device *net,
+	unsigned int txqueue)
+#else /* Legacy API */
 static void ecm_ipa_tx_timeout(struct net_device *net)
+#endif
 {
 	struct ecm_ipa_dev *ecm_ipa_ctx = netdev_priv(net);
 
@@ -1239,20 +1261,12 @@ static void ecm_ipa_debugfs_init(struct ecm_ipa_dev *ecm_ipa_ctx)
 		ECM_IPA_ERROR("could not create debugfs directory entry\n");
 		goto fail_directory;
 	}
-	file = debugfs_create_u8
+	debugfs_create_u8
 		("outstanding_high", flags_read_write,
 		ecm_ipa_ctx->directory, &ecm_ipa_ctx->outstanding_high);
-	if (!file) {
-		ECM_IPA_ERROR("could not create outstanding_high file\n");
-		goto fail_file;
-	}
-	file = debugfs_create_u8
+	debugfs_create_u8
 		("outstanding_low", flags_read_write,
 		ecm_ipa_ctx->directory, &ecm_ipa_ctx->outstanding_low);
-	if (!file) {
-		ECM_IPA_ERROR("could not create outstanding_low file\n");
-		goto fail_file;
-	}
 	file = debugfs_create_file
 		("outstanding", flags_read_only,
 		ecm_ipa_ctx->directory,

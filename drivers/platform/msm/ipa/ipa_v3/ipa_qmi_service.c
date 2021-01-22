@@ -277,8 +277,14 @@ static void ipa3_handle_modem_init_cmplt_req(struct qmi_handle *qmi_handle,
 	cmplt_req = (struct ipa_init_modem_driver_cmplt_req_msg_v01 *)
 		decoded_msg;
 
-	if (!ipa3_modem_init_cmplt)
+	if (!ipa3_modem_init_cmplt) {
 		ipa3_modem_init_cmplt = true;
+		if (ipa3_ctx->apply_rg10_wa && ipa3_qmi_modem_init_fin == true) {
+			IPAWANDBG("load uc related registers (%d)\n",
+				ipa3_qmi_modem_init_fin);
+				ipa3_uc_load_notify();
+		}
+	}
 
 	memset(&resp, 0, sizeof(resp));
 	resp.resp.result = IPA_QMI_RESULT_SUCCESS_V01;
@@ -474,6 +480,7 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 		return ret;
 	}
 
+	mutex_lock(&ipa3_qmi_lock);
 	ret = qmi_send_request(client_handle,
 		&ipa3_qmi_ctx->server_sq,
 		&txn,
@@ -481,6 +488,10 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 		req_desc->max_msg_len,
 		req_desc->ei_array,
 		req);
+
+	if (unlikely(!ipa_q6_clnt))
+		return -EINVAL;
+	mutex_unlock(&ipa3_qmi_lock);
 
 	if (ret < 0) {
 		qmi_txn_cancel(&txn);
@@ -1507,9 +1518,11 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 		IPAWANERR(
 		"ipa3_qmi_init_modem_send_sync_msg failed due to SSR!\n");
 		/* Cleanup when ipa3_wwan_remove is called */
+		mutex_lock(&ipa3_qmi_lock);
 		qmi_handle_release(ipa_q6_clnt);
 		vfree(ipa_q6_clnt);
 		ipa_q6_clnt = NULL;
+		mutex_unlock(&ipa3_qmi_lock);
 		return;
 	}
 
@@ -1524,6 +1537,13 @@ static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
 		BUG();
 	}
 	ipa3_qmi_modem_init_fin = true;
+
+	/* got modem_init_cmplt_req already, load uc-related register */
+	if (ipa3_ctx->apply_rg10_wa && ipa3_modem_init_cmplt == true) {
+		IPAWANDBG("load uc related registers (%d)\n",
+			ipa3_modem_init_cmplt);
+		ipa3_uc_load_notify();
+	}
 
 	/* In cold-bootup, first_time_handshake = false */
 	ipa3_q6_handshake_complete(first_time_handshake);
@@ -1849,6 +1869,7 @@ void ipa3_qmi_service_exit(void)
 	/* qmi-client */
 
 	/* Release client handle */
+	mutex_lock(&ipa3_qmi_lock);
 	if (ipa_q6_clnt != NULL) {
 		qmi_handle_release(ipa_q6_clnt);
 		vfree(ipa_q6_clnt);
@@ -1860,7 +1881,6 @@ void ipa3_qmi_service_exit(void)
 	}
 
 	/* clean the QMI msg cache */
-	mutex_lock(&ipa3_qmi_lock);
 	if (ipa3_qmi_ctx != NULL) {
 		vfree(ipa3_qmi_ctx);
 		ipa3_qmi_ctx = NULL;
