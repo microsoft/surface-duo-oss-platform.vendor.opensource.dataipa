@@ -206,10 +206,13 @@ int ipa3_teth_bridge_connect(struct teth_bridge_connect_params *connect_params)
 		TETH_ERR("fail to register with PM %d\n", res);
 		return res;
 	}
+	res = ipa_pm_activate_sync(*pm);
+
 	/* vote for turbo in case of MHIP channels*/
 	if (ipa3_is_apq())
-		res = ipa_pm_set_throughput(*pm, 5200);
-	res = ipa_pm_activate_sync(*pm);
+		res = ipa_pm_set_throughput(ipa3_teth_ctx->modem_pm_hdl,
+			5200);
+	res = ipa_pm_activate_sync(ipa3_teth_ctx->modem_pm_hdl);
 
 	TETH_DBG_FUNC_EXIT();
 	return res;
