@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _IPA3_I_H_
@@ -20,6 +20,10 @@
 #include <linux/ipa.h>
 #include <linux/ipa_usb.h>
 #include <linux/iommu.h>
+#include <linux/version.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0))
+#include <linux/qcom-iommu-util.h>
+#endif
 #include <linux/platform_device.h>
 #include <linux/firmware.h>
 #include "ipa_qmi_service.h"
@@ -185,7 +189,8 @@
 #define IPA_HDR_BIN2 2
 #define IPA_HDR_BIN3 3
 #define IPA_HDR_BIN4 4
-#define IPA_HDR_BIN_MAX 5
+#define IPA_HDR_BIN5 5
+#define IPA_HDR_BIN_MAX 6
 
 #define IPA_HDR_PROC_CTX_BIN0 0
 #define IPA_HDR_PROC_CTX_BIN1 1
@@ -1778,8 +1783,11 @@ struct ipa_cne_evt {
 enum ipa_smmu_cb_type {
 	IPA_SMMU_CB_AP,
 	IPA_SMMU_CB_WLAN,
+	IPA_SMMU_CB_WLAN1,
 	IPA_SMMU_CB_UC,
 	IPA_SMMU_CB_11AD,
+	IPA_SMMU_CB_ETH,
+	IPA_SMMU_CB_ETH1,
 	IPA_SMMU_CB_MAX
 };
 
@@ -1977,6 +1985,7 @@ struct ipa3_eth_error_stats {
  * @gsi_fw_file_name: GSI IPA fw file name
  * @uc_fw_file_name: uC IPA fw file name
  * @eth_info: ethernet client mapping
+ * @max_num_smmu_cb: number of smmu s1 cb supported
  */
 struct ipa3_context {
 	struct ipa3_char_device_context cdev;
@@ -2173,6 +2182,8 @@ struct ipa3_context {
 		eth_info[IPA_ETH_CLIENT_MAX][IPA_ETH_INST_ID_MAX];
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
+	u32 num_smmu_cb_probed;
+	u32 max_num_smmu_cb;
 };
 
 struct ipa3_plat_drv_res {
@@ -2241,6 +2252,7 @@ struct ipa3_plat_drv_res {
 	u32 tx_wrapper_cache_max_size;
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
+	u32 max_num_smmu_cb;
 };
 
 /**
@@ -3083,6 +3095,9 @@ struct ipa_smmu_cb_ctx *ipa3_get_smmu_ctx(enum ipa_smmu_cb_type);
 struct iommu_domain *ipa3_get_smmu_domain(void);
 struct iommu_domain *ipa3_get_uc_smmu_domain(void);
 struct iommu_domain *ipa3_get_wlan_smmu_domain(void);
+struct iommu_domain *ipa3_get_wlan1_smmu_domain(void);
+struct iommu_domain *ipa3_get_eth_smmu_domain(void);
+struct iommu_domain *ipa3_get_eth1_smmu_domain(void);
 struct iommu_domain *ipa3_get_smmu_domain_by_type
 	(enum ipa_smmu_cb_type cb_type);
 int ipa3_iommu_map(struct iommu_domain *domain, unsigned long iova,

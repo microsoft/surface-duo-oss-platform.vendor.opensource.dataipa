@@ -34,6 +34,9 @@
 #include <linux/soc/qcom/smem_state.h>
 #include <linux/of_irq.h>
 #include <linux/ctype.h>
+#include <linux/of_address.h>
+#include <linux/qcom_scm.h>
+#include <linux/soc/qcom/mdt_loader.h>
 #include "gsi.h"
 
 #ifdef CONFIG_ARM64
@@ -247,6 +250,9 @@ static const struct of_device_id ipa_plat_drv_match[] = {
 	{ .compatible = "qcom,ipa-smmu-wlan-cb", },
 	{ .compatible = "qcom,ipa-smmu-uc-cb", },
 	{ .compatible = "qcom,ipa-smmu-11ad-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth-cb", },
+	{ .compatible = "qcom,ipa-smmu-eth1-cb", },
+	{ .compatible = "qcom,ipa-smmu-wlan1-cb", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-in", },
 	{ .compatible = "qcom,smp2p-map-ipa-1-out", },
 	{}
@@ -711,6 +717,22 @@ struct iommu_domain *ipa3_get_wlan_smmu_domain(void)
 {
 	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN);
 }
+
+struct iommu_domain *ipa3_get_wlan1_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_WLAN1);
+}
+
+struct iommu_domain *ipa3_get_eth_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_ETH);
+}
+
+struct iommu_domain *ipa3_get_eth1_smmu_domain(void)
+{
+	return ipa3_get_smmu_domain_by_type(IPA_SMMU_CB_ETH1);
+}
+
 
 struct iommu_domain *ipa3_get_11ad_smmu_domain(void)
 {
@@ -2111,7 +2133,7 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
 	u32 pyld_sz;
-	u8 header[128] = { 0 };
+	u8 header[256] = { 0 };
 	u8 *param = NULL;
 	bool is_vlan_mode;
 	struct ipa_ioc_nat_alloc_mem nat_mem;
@@ -6975,6 +6997,90 @@ static int ipa3_manual_load_ipa_fws(void)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+static int ipa_firmware_load(const char *sub_sys)
+{
+	const struct firmware *fw;
+	char fw_name[32];
+	struct device_node *node;
+	struct resource res;
+	phys_addr_t phys;
+	ssize_t size;
+	void *virt;
+	int ret, index, pas_id;
+	struct device *dev = &ipa3_ctx->master_pdev->dev;
+
+	index = of_property_match_string(dev->of_node, "firmware-names",
+					 sub_sys);
+	if (index < 0) {
+		pr_err("#####Not able to match firmware names prorperty\n");
+		return -EINVAL;
+	}
+
+	node = of_parse_phandle(dev->of_node, "memory-regions", index);
+	if (!node) {
+		dev_err(dev, "DT error getting \"memory-region\" property\n");
+		return -EINVAL;
+	}
+
+	ret = of_address_to_resource(node, 0, &res);
+	if (ret) {
+		dev_err(dev, "error %d getting \"memory-region\" resource\n",
+			ret);
+		return ret;
+	}
+
+	scnprintf(fw_name, ARRAY_SIZE(fw_name), "%s.mdt", sub_sys);
+	ret = of_property_read_u32_index(dev->of_node, "pas-ids", index,
+					  &pas_id);
+
+	ret = request_firmware(&fw, fw_name, dev);
+	if (ret) {
+		dev_err(dev, "error %d requesting \"%s\"\n", ret, fw_name);
+		return ret;
+	}
+
+	phys = res.start;
+	size = (size_t)resource_size(&res);
+	virt = memremap(phys, size, MEMREMAP_WC);
+	if (!virt) {
+		dev_err(dev, "unable to remap firmware memory\n");
+		ret = -ENOMEM;
+		goto out_release_firmware;
+	}
+
+	ret = qcom_mdt_load(dev, fw, fw_name, pas_id, virt, phys, size, NULL);
+	if (ret)
+		dev_err(dev, "error %d loading \"%s\"\n", ret, fw_name);
+	else if ((ret = qcom_scm_pas_auth_and_reset(pas_id)))
+		dev_err(dev, "error %d authenticating \"%s\"\n", ret, fw_name);
+
+	memunmap(virt);
+
+out_release_firmware:
+	release_firmware(fw);
+
+	return ret;
+}
+
+static int ipa3_mdt_load_ipa_fws(const char *sub_sys)
+{
+	int ret;
+
+	IPADBG("MDT FW loading process initiated sub_sys=%s\n",
+		sub_sys);
+
+	ret = ipa_firmware_load(sub_sys);
+	if (ret < 0) {
+		IPAERR("Unable to MDT load FW for sub_sys=%s\n", sub_sys);
+		return -EINVAL;
+	}
+
+	IPADBG("MDT FW loading process is complete sub_sys=%s\n", sub_sys);
+	return 0;
+}
+#else /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
+
 static int ipa3_pil_load_ipa_fws(const char *sub_sys)
 {
 	void *subsystem_get_retval = NULL;
@@ -6991,6 +7097,7 @@ static int ipa3_pil_load_ipa_fws(const char *sub_sys)
 	IPADBG("PIL FW loading process is complete sub_sys=%s\n", sub_sys);
 	return 0;
 }
+#endif /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 
 static void ipa3_load_ipa_fw(struct work_struct *work)
 {
@@ -7014,11 +7121,19 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		 * using different signing images, adding support to
 		 * load specific FW image to based on dt entry.
 		 */
+#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+		if (ipa3_ctx->gsi_fw_file_name)
+			result = ipa3_mdt_load_ipa_fws(
+						ipa3_ctx->gsi_fw_file_name);
+		else
+			result = ipa3_mdt_load_ipa_fws(IPA_SUBSYSTEM_NAME);
+#else /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 		if (ipa3_ctx->gsi_fw_file_name)
 			result = ipa3_pil_load_ipa_fws(
 						ipa3_ctx->gsi_fw_file_name);
 		else
 			result = ipa3_pil_load_ipa_fws(IPA_SUBSYSTEM_NAME);
+#endif /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 	} else {
 		result = ipa3_manual_load_ipa_fws();
 	}
@@ -7050,17 +7165,25 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		/* Unvoting will happen when uC loaded event received. */
 		ipa3_proxy_clk_vote(false);
 
+#if IS_ENABLED(CONFIG_QCOM_MDT_LOADER)
+		if (ipa3_ctx->uc_fw_file_name)
+			result = ipa3_mdt_load_ipa_fws(
+						ipa3_ctx->uc_fw_file_name);
+		else
+			result = ipa3_mdt_load_ipa_fws(IPA_UC_SUBSYSTEM_NAME);
+#else /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 		if (ipa3_ctx->uc_fw_file_name)
 			result = ipa3_pil_load_ipa_fws(
 						ipa3_ctx->uc_fw_file_name);
 		else
 			result = ipa3_pil_load_ipa_fws(IPA_UC_SUBSYSTEM_NAME);
+#endif /* IS_ENABLED(CONFIG_QCOM_MDT_LOADER) */
 		if (result) {
 			IPAERR("IPA uC loading process has failed result=%d\n",
 				result);
 			return;
 		}
-		IPADBG("IPA uC PIL loading succeeded\n");
+		IPADBG("IPA uC loading succeeded\n");
 	}
 }
 
@@ -7139,10 +7262,6 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	IPADBG("user input string %s\n", dbg_buff);
 
-	/* Prevent consequent calls from trying to load the FW again. */
-	if (ipa3_is_ready())
-		return count;
-
 	/*Ignore empty ipa_config file*/
 	for (i = 0 ; i < count ; ++i) {
 		if (!isspace(dbg_buff[i]))
@@ -7194,6 +7313,10 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		pr_info("IPA is loading with %sMHI configuration\n",
 			ipa3_ctx->ipa_config_is_mhi ? "" : "non ");
 	}
+
+	/* Prevent consequent calls from trying to load the FW again. */
+	if (ipa3_is_ready())
+		return count;
 
 	ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_FWFILE_READY);
 
@@ -7433,7 +7556,6 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ipa_cfg_offset = resource_p->ipa_cfg_offset;
 	ipa3_ctx->ipa_hw_type = resource_p->ipa_hw_type;
 	ipa3_ctx->ipa_config_is_mhi = resource_p->ipa_mhi_dynamic_config;
-	ipa3_ctx->hw_type_index = ipa3_get_hw_type_index();
 	ipa3_ctx->ipa3_hw_mode = resource_p->ipa3_hw_mode;
 	ipa3_ctx->platform_type = resource_p->platform_type;
 	ipa3_ctx->use_ipa_teth_bridge = resource_p->use_ipa_teth_bridge;
@@ -7490,6 +7612,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 			resource_p->tx_wrapper_cache_max_size);
 	ipa3_ctx->ipa_config_is_auto = resource_p->ipa_config_is_auto;
 	ipa3_ctx->ipa_mhi_proxy = resource_p->ipa_mhi_proxy;
+	ipa3_ctx->max_num_smmu_cb = resource_p->max_num_smmu_cb;
+	ipa3_ctx->hw_type_index = ipa3_get_hw_type_index();
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -8275,6 +8399,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->skip_ieob_mask_wa = false;
 	ipa_drv_res->ipa_gpi_event_rp_ddr = false;
 	ipa_drv_res->ipa_config_is_auto = false;
+	ipa_drv_res->max_num_smmu_cb = IPA_SMMU_CB_MAX;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -8831,12 +8956,23 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 
 	get_dts_tx_wrapper_cache_size(pdev, ipa_drv_res);
 
+	result = of_property_read_u32(pdev->dev.of_node,
+		"qcom,max_num_smmu_cb",
+		&ipa_drv_res->max_num_smmu_cb);
+	if (result)
+		IPADBG(": using default max number of cb = %d\n",
+			ipa_drv_res->max_num_smmu_cb);
+	else
+		IPADBG(": found ipa_drv_res->max_num_smmu_cb = %d\n",
+			ipa_drv_res->max_num_smmu_cb);
+
 	return 0;
 }
 
-static int ipa_smmu_wlan_cb_probe(struct device *dev)
+static int ipa_smmu_perph_cb_probe(struct device *dev,
+	enum ipa_smmu_cb_type cb_type)
 {
-	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
+	struct ipa_smmu_cb_ctx *cb = ipa3_get_smmu_ctx(cb_type);
 	int fast = 0;
 	int bypass = 0;
 	u32 add_map_size;
@@ -8844,14 +8980,14 @@ static int ipa_smmu_wlan_cb_probe(struct device *dev)
 	int i;
 	u32 iova_ap_mapping[2];
 
-	IPADBG("WLAN CB PROBE dev=%pK\n", dev);
+	IPADBG("CB %d PROBE dev=%pK\n", cb_type, dev);
 
-	if (!smmu_info.present[IPA_SMMU_CB_WLAN]) {
-		IPAERR("WLAN SMMU is disabled\n");
+	if (!smmu_info.present[cb_type]) {
+		IPAERR("cb %d is disabled\n", cb_type);
 		return 0;
 	}
 
-	IPADBG("WLAN CB PROBE dev=%pK retrieving IOMMU mapping\n", dev);
+	IPADBG("CB %d PROBE dev=%pK retrieving IOMMU mapping\n", cb_type, dev);
 
 	cb->iommu_domain = iommu_get_domain_for_dev(dev);
 	if (IS_ERR_OR_NULL(cb->iommu_domain)) {
@@ -8859,9 +8995,9 @@ static int ipa_smmu_wlan_cb_probe(struct device *dev)
 		return -EINVAL;
 	}
 
-	IPADBG("WLAN CB PROBE mapping retrieved\n");
+	IPADBG("CB %d PROBE mapping retrieved\n", cb_type);
 	cb->is_cache_coherent = of_property_read_bool(dev->of_node,
-							"dma-coherent");
+		"dma-coherent");
 	cb->dev   = dev;
 	cb->valid = true;
 
@@ -8874,8 +9010,8 @@ static int ipa_smmu_wlan_cb_probe(struct device *dev)
 		cb->va_end   = cb->va_start + cb->va_size;
 	}
 
-	IPADBG("WLAN CB PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
-		   dev, cb->va_start, cb->va_size);
+	IPADBG("CB %d PROBE dev=%pK va_start=0x%x va_size=0x%x\n",
+		   cb_type, dev, cb->va_start, cb->va_size);
 
 	/*
 	 * Prior to these calls to iommu_domain_get_attr(), these
@@ -8893,10 +9029,10 @@ static int ipa_smmu_wlan_cb_probe(struct device *dev)
 	iommu_domain_get_attr(cb->iommu_domain, DOMAIN_ATTR_FAST, &fast);
 
 	IPADBG(
-	  "WLAN CB PROBE dev=%pK DOMAIN ATTRS bypass=%d fast=%d\n",
-	  dev, bypass, fast);
+	  "CB %d PROBE dev=%pK DOMAIN ATTRS bypass=%d fast=%d\n",
+	  cb_type, dev, bypass, fast);
 
-	ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN] = (bypass != 0);
+	ipa3_ctx->s1_bypass_arr[cb_type] = (bypass != 0);
 
 	/* MAP ipa-uc ram */
 	add_map = of_get_property(dev->of_node,
@@ -9235,7 +9371,10 @@ static int ipa_smmu_cb_probe(struct device *dev, enum ipa_smmu_cb_type cb_type)
 	case IPA_SMMU_CB_AP:
 		return ipa_smmu_ap_cb_probe(dev);
 	case IPA_SMMU_CB_WLAN:
-		return ipa_smmu_wlan_cb_probe(dev);
+	case IPA_SMMU_CB_WLAN1:
+	case IPA_SMMU_CB_ETH:
+	case IPA_SMMU_CB_ETH1:
+		return ipa_smmu_perph_cb_probe(dev, cb_type);
 	case IPA_SMMU_CB_UC:
 		return ipa_smmu_uc_cb_probe(dev);
 	case IPA_SMMU_CB_11AD:
@@ -9324,25 +9463,52 @@ static int ipa3_smp2p_probe(struct device *dev)
 	return 0;
 }
 
-static void ipa_smmu_update_fw_loader(void)
+static int ipa_smmu_update_fw_loader(void)
 {
-	int i;
+	int i, result;
+	int cnt = 0;
 
 	if (smmu_info.arm_smmu) {
 		IPADBG("smmu is enabled\n");
 		for (i = 0; i < IPA_SMMU_CB_MAX; i++) {
 			if (!smmu_info.present[i]) {
 				IPADBG("CB %d not probed yet\n", i);
-				break;
+			} else {
+				cnt++;
+				IPADBG("CB %d probed\n", i);
 			}
 		}
-		if (i == IPA_SMMU_CB_MAX) {
+		if (cnt == IPA_SMMU_CB_MAX ||
+			ipa3_ctx->num_smmu_cb_probed ==
+			ipa3_ctx->max_num_smmu_cb) {
 			IPADBG("All %d CBs probed\n", IPA_SMMU_CB_MAX);
 			ipa_fw_load_sm_handle_event(IPA_FW_LOAD_EVNT_SMMU_DONE);
+
+			if (ipa3_ctx->use_xbl_boot) {
+				IPAERR("Using XBL boot load for IPA FW\n");
+				mutex_lock(&ipa3_ctx->fw_load_data.lock);
+				ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_LOADED;
+				mutex_unlock(&ipa3_ctx->fw_load_data.lock);
+
+				result = ipa3_attach_to_smmu();
+				if (result) {
+					IPAERR("IPA attach to smmu failed %d\n",
+						result);
+					return result;
+				}
+
+				result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
+				if (result) {
+					IPAERR("IPA post init failed %d\n", result);
+					return result;
+				}
+			}
 		}
 	} else {
 		IPADBG("smmu is disabled\n");
 	}
+
+	return 0;
 }
 
 int ipa3_plat_drv_probe(struct platform_device *pdev_p)
@@ -9396,9 +9562,8 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_AP);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_AP] = true;
-		ipa_smmu_update_fw_loader();
-
-		return 0;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan-cb")) {
@@ -9409,9 +9574,44 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_WLAN] = true;
-		ipa_smmu_update_fw_loader();
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
 
-		return 0;
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-wlan1-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_WLAN1] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-eth-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_ETH] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
+	}
+
+	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-eth1-cb")) {
+		if (ipa3_ctx == NULL) {
+			IPAERR("ipa3_ctx was not initialized\n");
+			return -EPROBE_DEFER;
+		}
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH1);
+		cb->dev = dev;
+		smmu_info.present[IPA_SMMU_CB_ETH1] = true;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-uc-cb")) {
@@ -9422,9 +9622,8 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		cb =  ipa3_get_smmu_ctx(IPA_SMMU_CB_UC);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_UC] = true;
-		ipa_smmu_update_fw_loader();
-
-		return 0;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,ipa-smmu-11ad-cb")) {
@@ -9435,36 +9634,8 @@ int ipa3_plat_drv_probe(struct platform_device *pdev_p)
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_11AD);
 		cb->dev = dev;
 		smmu_info.present[IPA_SMMU_CB_11AD] = true;
-		ipa_smmu_update_fw_loader();
-
-		if (ipa3_ctx->use_xbl_boot) {
-			/* Ensure 11ad probe is the last. */
-			if (!smmu_info.present[IPA_SMMU_CB_AP] ||
-				!smmu_info.present[IPA_SMMU_CB_WLAN]) {
-				IPAERR("AP or WLAN CB probe not done. Defer");
-				return -EPROBE_DEFER;
-			}
-
-			IPAERR("Using XBL boot load for IPA FW\n");
-			mutex_lock(&ipa3_ctx->fw_load_data.lock);
-			ipa3_ctx->fw_load_data.state = IPA_FW_LOAD_STATE_LOADED;
-			mutex_unlock(&ipa3_ctx->fw_load_data.lock);
-
-			result = ipa3_attach_to_smmu();
-			if (result) {
-				IPAERR("IPA attach to smmu failed %d\n",
-				result);
-				return result;
-			}
-
-			result = ipa3_post_init(&ipa3_res, ipa3_ctx->cdev.dev);
-			if (result) {
-				IPAERR("IPA post init failed %d\n", result);
-				return result;
-			}
-		}
-
-		return 0;
+		ipa3_ctx->num_smmu_cb_probed++;
+		return ipa_smmu_update_fw_loader();
 	}
 
 	if (of_device_is_compatible(dev->of_node,
@@ -9664,6 +9835,15 @@ int ipa3_iommu_map(struct iommu_domain *domain,
 	} else if (domain == ipa3_get_wlan_smmu_domain()) {
 		/* wlan is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN);
+	} else if (domain == ipa3_get_wlan1_smmu_domain()) {
+		/* wlan1 is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_WLAN1);
+	} else if (domain == ipa3_get_eth_smmu_domain()) {
+		/* eth is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH);
+	} else if (domain == ipa3_get_eth1_smmu_domain()) {
+		/* eth1 is one time map */
+		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_ETH1);
 	} else if (domain == ipa3_get_11ad_smmu_domain()) {
 		/* 11ad is one time map */
 		cb = ipa3_get_smmu_ctx(IPA_SMMU_CB_11AD);
@@ -9726,6 +9906,21 @@ int ipa3_get_smmu_params(struct ipa_smmu_in_params *in,
 			is_smmu_enable =
 			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_UC] ||
 			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN]);
+		break;
+	case IPA_SMMU_WLAN1_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_WLAN1]);
+		break;
+	case IPA_SMMU_ETH_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH]);
+		break;
+	case IPA_SMMU_ETH1_CLIENT:
+		is_smmu_enable =
+			!(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_AP] ||
+			ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_ETH1]);
 		break;
 	case IPA_SMMU_WIGIG_CLIENT:
 		is_smmu_enable = !(ipa3_ctx->s1_bypass_arr[IPA_SMMU_CB_UC] ||

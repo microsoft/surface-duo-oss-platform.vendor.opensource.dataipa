@@ -21,6 +21,7 @@
 #include <linux/sched.h>
 #include <linux/wait.h>
 #include <linux/delay.h>
+#include <linux/version.h>
 
 #define GSI_CMD_TIMEOUT (5*HZ)
 #define GSI_START_CMD_TIMEOUT_MS 1000
@@ -223,6 +224,12 @@ static void gsi_channel_state_change_wait(unsigned long chan_hdl,
 		} else {
 			gsi_pending_intr = gsihal_read_reg_n(
 				GSI_EE_n_CNTXT_SRC_GSI_CH_IRQ, ee);
+		}
+
+		if (gsi_ctx->per.ver == GSI_VER_1_0) {
+			gsihal_read_reg_nk_fields(GSI_EE_n_GSI_CH_k_CNTXT_0,
+				ee, chan_hdl, &ch_k_cntxt_0);
+			curr_state = ch_k_cntxt_0.chstate;
 		}
 
 		/* Update the channel state only if interrupt was raised
@@ -1342,7 +1349,11 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 		gsi_ctx->intcntrlr_mem_size =
 		    props->emulator_intcntrlr_size;
 		gsi_ctx->intcntrlr_base =
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+		    devm_ioremap(
+#else
 		    devm_ioremap_nocache(
+#endif
 			gsi_ctx->dev,
 			props->emulator_intcntrlr_addr,
 			props->emulator_intcntrlr_size);
