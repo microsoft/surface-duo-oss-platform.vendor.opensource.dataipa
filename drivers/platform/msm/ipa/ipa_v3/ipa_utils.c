@@ -2464,13 +2464,18 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 11, 14, 8, 16, IPA_EE_AP }, IPA_TX_INSTANCE_NA },
-
 	[IPA_4_5][IPA_CLIENT_WLAN2_CONS]          = {
 			true, IPA_v4_5_GROUP_UL_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 24, 3, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 }, IPA_TX_INSTANCE_NA },
+	[IPA_4_5][IPA_CLIENT_WLAN2_CONS1]          = {
+			true, IPA_v4_5_GROUP_UL_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 27, 18, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 }, IPA_TX_INSTANCE_NA},
 	[IPA_4_5][IPA_CLIENT_USB_CONS]            = {
 			true, IPA_v4_5_GROUP_UL_DL,
 			false,
@@ -4154,7 +4159,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_PCIE,
 			{ 27, 3 , 8 , 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
-	[IPA_5_0][IPA_CLIENT_WLAN3_CONS] = {
+	[IPA_5_0][IPA_CLIENT_WLAN2_CONS1] = {
 			true,   IPA_v5_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -4169,7 +4174,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 29, 23, 9 , 9 , IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
 			IPA_TX_INSTANCE_DL },
 	[IPA_5_0][IPA_CLIENT_APPS_WAN_LOW_LAT_CONS] = {
-			true, IPA_v5_0_GROUP_URLLC,
+			true, IPA_v5_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_PCIE,
@@ -4424,7 +4429,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 30, 24, 5 , 5 , IPA_EE_AP, GSI_ESCAPE_BUF_ONLY, 0},
 			IPA_TX_INSTANCE_DL },
 	[IPA_5_0_MHI][IPA_CLIENT_MHI_LOW_LAT_CONS] = {
-			true, IPA_v5_0_GROUP_URLLC,
+			true, IPA_v5_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_PCIE,
@@ -4532,7 +4537,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 	[IPA_5_1][IPA_CLIENT_APPS_WAN_LOW_LAT_PROD] = {
 			true, IPA_v5_0_GROUP_URLLC,
 			false,
-			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			IPA_DPS_HPS_SEQ_TYPE_DMA_ONLY,
 			QMB_MASTER_SELECT_DDR,
 			{ 4, 9, 16, 24, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
 			IPA_TX_INSTANCE_NA },
@@ -4658,7 +4663,7 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_TX_INSTANCE_DL },
 
 	[IPA_5_1][IPA_CLIENT_APPS_WAN_LOW_LAT_CONS] = {
-			true, IPA_v5_0_GROUP_URLLC,
+			true, IPA_v5_0_GROUP_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_PCIE,
@@ -5668,6 +5673,10 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_MHI2_CONS),
 	__stringify(IPA_CLIENT_Q6_CV2X_PROD),
 	__stringify(IPA_CLIENT_Q6_CV2X_CONS),
+	__stringify(IPA_CLIENT_ETHERNET2_PROD),
+	__stringify(IPA_CLIENT_ETHERNET2_CONS),
+	__stringify(RESERVERD_PROD_118),
+	__stringify(IPA_CLIENT_WLAN2_CONS1),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -5786,6 +5795,7 @@ int ipa3_get_clients_from_rm_resource(
 		clients->names[i++] = IPA_CLIENT_WLAN1_CONS;
 		clients->names[i++] = IPA_CLIENT_WLAN2_CONS;
 		clients->names[i++] = IPA_CLIENT_WLAN3_CONS;
+		clients->names[i++] = IPA_CLIENT_WLAN2_CONS1;
 		break;
 	case IPA_RM_RESOURCE_MHI_CONS:
 		clients->names[i++] = IPA_CLIENT_MHI_CONS;
@@ -5864,6 +5874,7 @@ bool ipa3_should_pipe_be_suspended(enum ipa_client_type client)
 	    client == IPA_CLIENT_WLAN1_CONS   ||
 	    client == IPA_CLIENT_WLAN2_CONS   ||
 	    client == IPA_CLIENT_WLAN3_CONS   ||
+	    client == IPA_CLIENT_WLAN2_CONS1  ||
 	    client == IPA_CLIENT_WLAN4_CONS   ||
 	    client == IPA_CLIENT_ODU_EMB_CONS ||
 	    client == IPA_CLIENT_ODU_TETH_CONS ||
@@ -7390,6 +7401,10 @@ int ipa3_cfg_ep_hdr_ext(u32 clnt_hdl,
  */
 int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 {
+	int code = 0, result;
+	struct ipa3_ep_context *ep;
+	bool primary_secondry;
+
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes || ep_ctrl == NULL) {
 		IPAERR("bad parm, clnt_hdl = %d\n", clnt_hdl);
 		return -EINVAL;
@@ -7410,6 +7425,33 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		clnt_hdl,
 		ep_ctrl->ipa_ep_suspend,
 		ep_ctrl->ipa_ep_delay);
+	ep = &ipa3_ctx->ep[clnt_hdl];
+	if (ipa3_ctx->ipa_endp_delay_wa_v2 &&
+		IPA_CLIENT_IS_PROD(ep->client)) {
+
+		IPADBG("Configuring flow control for pipe = %d\n", clnt_hdl);
+		/* Configure enhanced flow control instead of delay
+		 * Q6 controlled AP pipes(USB PROD and MHI_PROD) configuring the
+		 * secondary flow control.
+		 * AP controlled pipe configuring primary flow control.
+		 */
+		if (ep->client == IPA_CLIENT_USB_PROD ||
+			ep->client == IPA_CLIENT_MHI_PROD)
+			primary_secondry = true;
+		else
+			primary_secondry = false;
+
+		result = gsi_flow_control_ee(ep->gsi_chan_hdl, 0,
+				ep_ctrl->ipa_ep_delay, primary_secondry, &code);
+		if (result == GSI_STATUS_SUCCESS) {
+			IPADBG("flow control sussess gsi ch %d with code %d\n",
+					ep->gsi_chan_hdl, code);
+		} else {
+			IPADBG("failed to flow control gsi ch %d code %d\n",
+					ep->gsi_chan_hdl, code);
+		}
+		return 0;
+	}
 
 	ipahal_write_reg_n_fields(IPA_ENDP_INIT_CTRL_n, clnt_hdl, ep_ctrl);
 
@@ -10402,6 +10444,7 @@ static int __ipa3_stop_gsi_channel(u32 clnt_hdl)
 	}
 
 	IPAERR("Failed  to stop GSI channel with retries\n");
+	ipa_assert();
 	return res;
 }
 
@@ -11543,6 +11586,7 @@ int ipa3_get_prot_id(enum ipa_client_type client)
 		break;
 	case IPA_CLIENT_WLAN2_PROD:
 	case IPA_CLIENT_WLAN2_CONS:
+	case IPA_CLIENT_WLAN2_CONS1:
 		prot_id = IPA_HW_PROTOCOL_WDI3;
 		break;
 	case IPA_CLIENT_USB_PROD:

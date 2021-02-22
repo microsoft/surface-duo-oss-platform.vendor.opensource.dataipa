@@ -249,7 +249,11 @@ enum {
 #define IPA_WDI_CE_RING_RES			5
 #define IPA_WDI_CE_DB_RES			6
 #define IPA_WDI_TX_DB_RES			7
-#define IPA_WDI_MAX_RES				8
+#define IPA_WDI_TX1_RING_RES		8
+#define IPA_WDI_CE1_RING_RES		9
+#define IPA_WDI_CE1_DB_RES			10
+#define IPA_WDI_TX1_DB_RES			11
+#define IPA_WDI_MAX_RES				12
 
 /* use QMAP header reserved bit to identify tethered traffic */
 #define IPA_QMAP_TETH_BIT (1 << 30)
@@ -1062,6 +1066,10 @@ struct ipa3_repl_ctx {
  * @napi_tx: napi for eot write done handle (tx_complete) - to replace tasklet
  * @in_napi_context: an atomic variable used for non-blocking locking,
  * preventing from multiple napi_sched to be called.
+ * @int_modt: GSI event ring interrupt moderation timer
+ * @int_modc: GSI event ring interrupt moderation counter
+ * @buff_size: rx packet length
+ * @ext_ioctl_v2: specifies if it's new version of ingress/egress ioctl
  *
  * IPA context specific to the GPI pipes a.k.a LAN IN/OUT and WAN
  */
@@ -1099,6 +1107,10 @@ struct ipa3_sys_context {
 	u32 eob_drop_cnt;
 	struct napi_struct napi_tx;
 	atomic_t in_napi_context;
+	u32 int_modt;
+	u32 int_modc;
+	u32 buff_size;
+	bool ext_ioctl_v2;
 
 	/* ordering is important - mutable fields go above */
 	struct ipa3_ep_context *ep;
@@ -2184,6 +2196,10 @@ struct ipa3_context {
 	bool ipa_mhi_proxy;
 	u32 num_smmu_cb_probed;
 	u32 max_num_smmu_cb;
+	u32 ipa_wdi3_2g_holb_timeout;
+	u32 ipa_wdi3_5g_holb_timeout;
+	bool is_wdi3_tx1_needed;
+	bool ipa_endp_delay_wa_v2;
 };
 
 struct ipa3_plat_drv_res {
@@ -2253,6 +2269,9 @@ struct ipa3_plat_drv_res {
 	u32 ipa_wan_aggr_pkt_cnt;
 	bool ipa_mhi_proxy;
 	u32 max_num_smmu_cb;
+	u32 ipa_wdi3_2g_holb_timeout;
+	u32 ipa_wdi3_5g_holb_timeout;
+	bool ipa_endp_delay_wa_v2;
 };
 
 /**
@@ -2961,6 +2980,7 @@ void ipa3_skb_recycle(struct sk_buff *skb);
 void ipa3_install_dflt_flt_rules(u32 ipa_ep_idx);
 void ipa3_delete_dflt_flt_rules(u32 ipa_ep_idx);
 
+int ipa3_remove_secondary_flow_ctrl(int gsi_chan_hdl);
 int ipa3_enable_data_path(u32 clnt_hdl);
 int ipa3_disable_data_path(u32 clnt_hdl);
 int ipa3_disable_gsi_data_path(u32 clnt_hdl);
@@ -3147,8 +3167,10 @@ int ipa3_register_rmnet_ctl_cb(
 	void *user_data3);
 int ipa3_unregister_rmnet_ctl_cb(void);
 int ipa3_rmnet_ctl_xmit(struct sk_buff *skb);
-int ipa3_setup_apps_low_lat_prod_pipe(void);
-int ipa3_setup_apps_low_lat_cons_pipe(void);
+int ipa3_setup_apps_low_lat_prod_pipe(bool rmnet_config,
+	struct rmnet_egress_param *egress_param);
+int ipa3_setup_apps_low_lat_cons_pipe(bool rmnet_config,
+	struct rmnet_ingress_param *ingress_param);
 int ipa3_teardown_apps_low_lat_pipes(void);
 const char *ipa_hw_error_str(enum ipa3_hw_errors err_type);
 int ipa_gsi_ch20_wa(void);
