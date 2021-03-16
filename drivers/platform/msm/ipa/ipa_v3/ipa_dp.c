@@ -2505,9 +2505,11 @@ fail_dma_mapping:
 fail_skb_alloc:
 	kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
 fail_kmem_cache_alloc:
-	if (rx_len_cached == 0)
+	if (rx_len_cached == 0) {
 		queue_delayed_work(sys->wq, &sys->replenish_rx_work,
 				msecs_to_jiffies(1));
+		return;
+	}
 done:
 	/* only ring doorbell once here */
 	ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, idx,
@@ -2612,9 +2614,12 @@ fail_dma_mapping:
 	INIT_LIST_HEAD(&rx_pkt->link);
 	spin_unlock_bh(&sys->spinlock);
 fail_kmem_cache_alloc:
-	if (rx_len_cached == 0)
+	if (rx_len_cached == 0) {
 		queue_delayed_work(sys->wq, &sys->replenish_rx_work,
 		msecs_to_jiffies(1));
+		return;
+	}
+
 done:
 	/* only ring doorbell once here */
 	ret = gsi_queue_xfer(sys->ep->gsi_chan_hdl, idx,
@@ -3912,16 +3917,20 @@ static void ipa3_set_aggr_limit(struct ipa_sys_connect_params *in,
 	u32 *aggr_byte_limit = &in->ipa_ep_cfg.aggr.aggr_byte_limit;
 	u32 adjusted_sz;
 
-	if (sys->ext_ioctl_v2) {
+	if (ipa3_ctx->ipa_wan_skb_page) {
 		IPAERR("set rx_buff_sz config from netmngr %lu\n", (unsigned long)
 			sys->buff_size);
 		sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(sys->buff_size);
+		*aggr_byte_limit = IPA_ADJUST_AGGR_BYTE_LIMIT(*aggr_byte_limit);
 	} else {
 		adjusted_sz = ipa_adjust_ra_buff_base_sz(*aggr_byte_limit);
 		IPAERR("get close-by %u\n", adjusted_sz);
 		IPAERR("set default rx_buff_sz %lu\n", (unsigned long)
 				IPA_GENERIC_RX_BUFF_SZ(adjusted_sz));
 		sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(adjusted_sz);
+		*aggr_byte_limit = sys->rx_buff_sz < *aggr_byte_limit ?
+		IPA_ADJUST_AGGR_BYTE_LIMIT(sys->rx_buff_sz) :
+		IPA_ADJUST_AGGR_BYTE_LIMIT(*aggr_byte_limit);
 	}
 
 	/* disable ipa_status */
@@ -3929,10 +3938,6 @@ static void ipa3_set_aggr_limit(struct ipa_sys_connect_params *in,
 
 	if (in->client == IPA_CLIENT_APPS_WAN_COAL_CONS)
 		in->ipa_ep_cfg.aggr.aggr_hard_byte_limit_en = 1;
-
-	*aggr_byte_limit = sys->rx_buff_sz < *aggr_byte_limit ?
-		IPA_ADJUST_AGGR_BYTE_LIMIT(sys->rx_buff_sz) :
-		IPA_ADJUST_AGGR_BYTE_LIMIT(*aggr_byte_limit);
 
 	IPADBG("set aggr_limit %lu\n", (unsigned long) *aggr_byte_limit);
 }
@@ -4625,7 +4630,7 @@ static void ipa_gsi_irq_tx_notify_cb(struct gsi_chan_xfer_notify *notify)
 
 void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys)
 {
-	bool clk_off;
+	bool clk_off = true;
 	enum ipa_client_type client_type;
 
 	atomic_set(&sys->curr_polling_state, 1);
@@ -4645,7 +4650,9 @@ void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys)
 	 * switch. Use the active no block instead
 	 * where we would have ref counts.
 	 */
-	clk_off = IPA_ACTIVE_CLIENTS_INC_EP_NO_BLOCK(client_type);
+	if ((ipa_net_initialized && sys->napi_obj) ||
+		IPA_CLIENT_IS_LOW_LAT_CONS(sys->ep->client))
+		clk_off = IPA_ACTIVE_CLIENTS_INC_EP_NO_BLOCK(client_type);
 	if (!clk_off && ipa_net_initialized && sys->napi_obj) {
 		trace_ipa3_napi_schedule(sys->ep->client);
 		napi_schedule(sys->napi_obj);
