@@ -72,6 +72,8 @@
 #define IPA_HOLB_TMR_DIS 0x0
 #define IPA_HOLB_TMR_EN 0x1
 #define IPA_HOLB_TMR_VAL_4_5 31
+#define IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM (IPA5_MAX_NUM_PIPES + 1)
+
 /*
  * The transport descriptor size was changed to GSI_CHAN_RE_SIZE_16B, but
  * IPA users still use sps_iovec size as FIFO element size.
@@ -86,7 +88,7 @@
 
 #define NAPI_WEIGHT 64
 
-#define NAPI_TX_WEIGHT 64
+#define NAPI_TX_WEIGHT 32
 
 #define IPA_WAN_AGGR_PKT_CNT 1
 
@@ -1069,6 +1071,7 @@ struct ipa3_repl_ctx {
  * @int_modt: GSI event ring interrupt moderation timer
  * @int_modc: GSI event ring interrupt moderation counter
  * @buff_size: rx packet length
+ * @page_order: page order of the rx pipe based on the ioctl version
  * @ext_ioctl_v2: specifies if it's new version of ingress/egress ioctl
  *
  * IPA context specific to the GPI pipes a.k.a LAN IN/OUT and WAN
@@ -1106,10 +1109,13 @@ struct ipa3_sys_context {
 	bool skip_eot;
 	u32 eob_drop_cnt;
 	struct napi_struct napi_tx;
+	bool tx_poll;
+	bool napi_tx_enable;
 	atomic_t in_napi_context;
 	u32 int_modt;
 	u32 int_modc;
 	u32 buff_size;
+	u32 page_order;
 	bool ext_ioctl_v2;
 
 	/* ordering is important - mutable fields go above */
@@ -1403,12 +1409,15 @@ struct ipa3_ipv6ct_mem {
  * @IPA_HW_Virtual: IPA hardware supporting virtual memory allocation
  * @IPA_HW_PCIE: IPA hardware supporting memory allocation over PCIE Bridge
  * @IPA_HW_Emulation: IPA emulation hardware
+ * @IPA_HW_Test: Regular IPA hardware in test mode (for
+ *             kernel-tests)
  */
 enum ipa3_hw_mode {
 	IPA_HW_MODE_NORMAL    = 0,
 	IPA_HW_MODE_VIRTUAL   = 1,
 	IPA_HW_MODE_PCIE      = 2,
 	IPA_HW_MODE_EMULATION = 3,
+	IPA_HW_MODE_TEST      = 4,
 };
 
 /*
@@ -2177,6 +2186,7 @@ struct ipa3_context {
 	/* dummy netdev for lan RX NAPI */
 	bool lan_rx_napi_enable;
 	bool tx_napi_enable;
+	bool tx_poll;
 	struct net_device generic_ndev;
 	struct napi_struct napi_lan_rx;
 	u32 icc_num_cases;
@@ -2200,6 +2210,11 @@ struct ipa3_context {
 	u32 ipa_wdi3_5g_holb_timeout;
 	bool is_wdi3_tx1_needed;
 	bool ipa_endp_delay_wa_v2;
+	u32 pkt_init_ex_imm_opcode;
+	struct ipa_mem_buffer pkt_init_mem;
+	struct ipa_mem_buffer pkt_init_ex_mem;
+	struct ipa_mem_buffer pkt_init_ex_imm[IPA_IMM_IP_PACKET_INIT_EX_CMD_NUM];
+	bool is_modem_up;
 };
 
 struct ipa3_plat_drv_res {
@@ -2237,6 +2252,7 @@ struct ipa3_plat_drv_res {
 	bool tethered_flow_control;
 	bool lan_rx_napi_enable;
 	bool tx_napi_enable;
+	bool tx_poll;
 	u32 mhi_evid_limits[2]; /* start and end values */
 	bool ipa_mhi_dynamic_config;
 	u32 ipa_tz_unlock_reg_num;
@@ -3309,4 +3325,8 @@ int ipa3_uc_send_update_flow_control(uint32_t bitmask,
 	uint8_t  add_delete);
 
 enum ipa_hw_type ipa_get_hw_type_internal(void);
+/* check if modem is up */
+bool ipa3_is_modem_up(void);
+/* set modem is up */
+void ipa3_set_modem_up(bool is_up);
 #endif /* _IPA3_I_H_ */

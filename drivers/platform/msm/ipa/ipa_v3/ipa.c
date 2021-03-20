@@ -120,6 +120,9 @@ static void ipa_gsi_notify_cb(struct gsi_per_notify *notify);
 
 static int ipa3_attach_to_smmu(void);
 static int ipa3_alloc_pkt_init(void);
+static int ipa_alloc_pkt_init_ex(void);
+static void ipa3_free_pkt_init(void);
+static void ipa3_free_pkt_init_ex(void);
 
 static void ipa3_load_ipa_fw(struct work_struct *work);
 static DECLARE_WORK(ipa3_fw_loading_work, ipa3_load_ipa_fw);
@@ -6750,7 +6753,16 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	if (result) {
 		IPAERR("Failed to alloc pkt_init payload\n");
 		result = -ENODEV;
-		goto fail_allok_pkt_init;
+		goto fail_alloc_pkt_init;
+	}
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
+		result = ipa_alloc_pkt_init_ex();
+		if (result) {
+			IPAERR("Failed to alloc pkt_init_ex payload\n");
+			result = -ENODEV;
+			goto fail_alloc_pkt_init_ex;
+		}
 	}
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v3_5)
@@ -6848,6 +6860,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		gsi_props.mhi_er_id_limits[1] = resource_p->mhi_evid_limits[1];
 	}
 	gsi_props.skip_ieob_mask_wa = resource_p->skip_ieob_mask_wa;
+	gsi_props.tx_poll = resource_p->tx_poll;
 
 	result = gsi_register_device(&gsi_props,
 		&ipa3_ctx->gsi_dev_hdl);
@@ -6957,9 +6970,13 @@ fail_setup_apps_pipes:
 fail_register_device:
 	ipa3_destroy_flt_tbl_idrs();
 fail_init_interrupts:
-	 ipa3_remove_interrupt_handler(IPA_TX_SUSPEND_IRQ);
-	 ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
-fail_allok_pkt_init:
+	ipa3_remove_interrupt_handler(IPA_TX_SUSPEND_IRQ);
+	ipa3_interrupts_destroy(ipa3_res.ipa_irq, &ipa3_ctx->master_pdev->dev);
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)
+		ipa3_free_pkt_init_ex();
+fail_alloc_pkt_init_ex:
+	ipa3_free_pkt_init();
+fail_alloc_pkt_init:
 	ipa3_nat_ipv6ct_destroy_devices();
 fail_nat_ipv6ct_init_dev:
 	ipa3_free_coal_close_frame();
@@ -7425,7 +7442,7 @@ int ipa3_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs)
 
 static int ipa3_alloc_pkt_init(void)
 {
-	struct ipa_mem_buffer mem;
+	struct ipa_mem_buffer *mem = &ipa3_ctx->pkt_init_mem;
 	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	struct ipahal_imm_cmd_ip_packet_init cmd = {0};
 	int i;
@@ -7438,17 +7455,16 @@ static int ipa3_alloc_pkt_init(void)
 	}
 	ipa3_ctx->pkt_init_imm_opcode = cmd_pyld->opcode;
 
-	mem.size = cmd_pyld->len * ipa3_ctx->ipa_num_pipes;
-	mem.base = dma_alloc_coherent(ipa3_ctx->pdev, mem.size,
-		&mem.phys_base, GFP_KERNEL);
-	if (!mem.base) {
-		IPAERR("failed to alloc DMA buff of size %d\n", mem.size);
-		ipahal_destroy_imm_cmd(cmd_pyld);
+	mem->size = cmd_pyld->len * ipa3_ctx->ipa_num_pipes;
+	ipahal_destroy_imm_cmd(cmd_pyld);
+	mem->base = dma_alloc_coherent(ipa3_ctx->pdev, mem->size,
+		&mem->phys_base, GFP_KERNEL);
+	if (!mem->base) {
+		IPAERR("failed to alloc DMA buff of size %d\n", mem->size);
 		return -ENOMEM;
 	}
-	ipahal_destroy_imm_cmd(cmd_pyld);
 
-	memset(mem.base, 0, mem.size);
+	memset(mem->base, 0, mem->size);
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		cmd.destination_pipe_index = i;
 		cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT,
@@ -7456,18 +7472,132 @@ static int ipa3_alloc_pkt_init(void)
 		if (!cmd_pyld) {
 			IPAERR("failed to construct IMM cmd\n");
 			dma_free_coherent(ipa3_ctx->pdev,
-				mem.size,
-				mem.base,
-				mem.phys_base);
+				mem->size,
+				mem->base,
+				mem->phys_base);
 			return -ENOMEM;
 		}
-		memcpy(mem.base + i * cmd_pyld->len, cmd_pyld->data,
+		memcpy(mem->base + i * cmd_pyld->len, cmd_pyld->data,
 			cmd_pyld->len);
-		ipa3_ctx->pkt_init_imm[i] = mem.phys_base + i * cmd_pyld->len;
+		ipa3_ctx->pkt_init_imm[i] = mem->phys_base + i * cmd_pyld->len;
 		ipahal_destroy_imm_cmd(cmd_pyld);
 	}
 
 	return 0;
+}
+
+static void ipa3_free_pkt_init(void)
+{
+	dma_free_coherent(ipa3_ctx->pdev, ipa3_ctx->pkt_init_mem.size,
+		ipa3_ctx->pkt_init_mem.base,
+		ipa3_ctx->pkt_init_mem.phys_base);
+}
+
+static void ipa3_free_pkt_init_ex(void)
+{
+	dma_free_coherent(ipa3_ctx->pdev, ipa3_ctx->pkt_init_ex_mem.size,
+		ipa3_ctx->pkt_init_ex_mem.base,
+		ipa3_ctx->pkt_init_ex_mem.phys_base);
+}
+
+static int ipa_alloc_pkt_init_ex(void)
+{
+	struct ipa_mem_buffer *mem = &ipa3_ctx->pkt_init_ex_mem;
+	struct ipahal_imm_cmd_pyld *cmd_pyld;
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd = {0};
+	struct ipahal_imm_cmd_ip_packet_init_ex cmd_mask = {0};
+	int result = 0;
+
+	cmd_pyld = ipahal_construct_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		&cmd, false);
+	if (!cmd_pyld) {
+		IPAERR("failed to construct IMM cmd\n");
+		return -ENOMEM;
+	}
+	ipa3_ctx->pkt_init_ex_imm_opcode = cmd_pyld->opcode;
+
+	/* one cmd for each pipe for ULSO + one common for ICMP */
+	mem->size = cmd_pyld->len * (ipa3_ctx->ipa_num_pipes + 1);
+	mem->base = dma_alloc_coherent(ipa3_ctx->pdev, mem->size,
+		&mem->phys_base, GFP_KERNEL);
+	if (!mem->base) {
+		IPAERR("failed to alloc DMA buff of size %d\n", mem->size);
+		result = -ENOMEM;
+		goto free_imm;
+	}
+
+	memset(mem->base, 0, mem->size);
+	cmd.frag_disable = true;
+	cmd_mask.frag_disable = true;
+	cmd.nat_disable = true;
+	cmd_mask.nat_disable = true;
+	cmd.filter_disable = true;
+	cmd_mask.filter_disable = true;
+	cmd.route_disable = true;
+	cmd_mask.route_disable = true;
+	cmd.hdr_removal_insertion_disable = false;
+	cmd_mask.hdr_removal_insertion_disable = true;
+	cmd.cs_disable = false;
+	cmd_mask.cs_disable = true;
+	cmd.flt_retain_hdr = true;
+	cmd_mask.flt_retain_hdr = true;
+	cmd.rt_retain_hdr = true;
+	cmd_mask.rt_retain_hdr = true;
+	cmd_mask.rt_pipe_dest_idx = true;
+	for (cmd.rt_pipe_dest_idx = 0;
+	      cmd.rt_pipe_dest_idx < ipa3_ctx->ipa_num_pipes;
+	      cmd.rt_pipe_dest_idx++) {
+		result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+			cmd_pyld->data, &cmd, &cmd_mask);
+		if (unlikely(result != 0)) {
+			IPAERR("failed to modify IMM cmd\n");
+			goto free_dma;
+		}
+		memcpy(mem->base + cmd.rt_pipe_dest_idx * cmd_pyld->len,
+			cmd_pyld->data, cmd_pyld->len);
+		ipa3_ctx->pkt_init_ex_imm[cmd.rt_pipe_dest_idx].phys_base =
+			mem->phys_base + cmd.rt_pipe_dest_idx * cmd_pyld->len;
+		ipa3_ctx->pkt_init_ex_imm[cmd.rt_pipe_dest_idx].base =
+			mem->base + cmd.rt_pipe_dest_idx * cmd_pyld->len;
+		ipa3_ctx->pkt_init_ex_imm[cmd.rt_pipe_dest_idx].size =
+			cmd_pyld->len;
+	}
+
+	cmd.hdr_removal_insertion_disable = true;
+	cmd.cs_disable = true;
+	cmd.flt_retain_hdr = false;
+	cmd.rt_retain_hdr = false;
+	cmd.flt_close_aggr_irq_mod = true;
+	cmd_mask.flt_close_aggr_irq_mod = true;
+	cmd.rt_close_aggr_irq_mod = true;
+	cmd_mask.rt_close_aggr_irq_mod = true;
+	/* Just a placeholder. Will be assigned in the DP, before sending. */
+	cmd.rt_pipe_dest_idx = ipa3_ctx->ipa_num_pipes;
+	result = ipahal_modify_imm_cmd(IPA_IMM_CMD_IP_PACKET_INIT_EX,
+		cmd_pyld->data, &cmd, &cmd_mask);
+	if (unlikely(result != 0)) {
+		IPAERR("failed to modify IMM cmd\n");
+		goto free_dma;
+	}
+	memcpy(mem->base + ipa3_ctx->ipa_num_pipes * cmd_pyld->len,
+		cmd_pyld->data,
+		cmd_pyld->len);
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].phys_base =
+		mem->phys_base + ipa3_ctx->ipa_num_pipes * cmd_pyld->len;
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].base =
+		mem->base + ipa3_ctx->ipa_num_pipes * cmd_pyld->len;
+	ipa3_ctx->pkt_init_ex_imm[ipa3_ctx->ipa_num_pipes].size = cmd_pyld->len;
+
+	goto free_imm;
+
+free_dma:
+	dma_free_coherent(ipa3_ctx->pdev,
+		mem->size,
+		mem->base,
+		mem->phys_base);
+free_imm:
+	ipahal_destroy_imm_cmd(cmd_pyld);
+	return result;
 }
 
 /*
@@ -7650,6 +7780,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		resource_p->do_ram_collection_on_crash;
 	ipa3_ctx->lan_rx_napi_enable = resource_p->lan_rx_napi_enable;
 	ipa3_ctx->tx_napi_enable = resource_p->tx_napi_enable;
+	ipa3_ctx->tx_poll = resource_p->tx_poll;
 	ipa3_ctx->ipa_gpi_event_rp_ddr = resource_p->ipa_gpi_event_rp_ddr;
 	ipa3_ctx->rmnet_ctl_enable = resource_p->rmnet_ctl_enable;
 	ipa3_ctx->tx_wrapper_cache_max_size = get_tx_wrapper_cache_size(
@@ -8136,6 +8267,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 
 	mutex_init(&ipa3_ctx->app_clock_vote.mutex);
+	ipa3_ctx->is_modem_up = false;
 
 	return 0;
 
@@ -8717,6 +8849,12 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 		ipa_drv_res->tx_napi_enable
 		? "True" : "False");
 
+	ipa_drv_res->tx_poll = of_property_read_bool(pdev->dev.of_node,
+		"qcom,tx-poll");
+	IPADBG(": Enable tx polling = %s\n",
+	       ipa_drv_res->tx_poll
+	       ? "True" : "False");
+
 	ipa_drv_res->rmnet_ctl_enable =
 		of_property_read_bool(pdev->dev.of_node,
 		"qcom,rmnet-ctl-enable");
@@ -9116,6 +9254,11 @@ static int ipa_smmu_perph_cb_probe(struct device *dev,
 	  cb_type, dev, bypass, fast);
 
 	ipa3_ctx->s1_bypass_arr[cb_type] = (bypass != 0);
+
+	if (of_property_read_bool(dev->of_node, "qcom,shared-cb")) {
+		IPADBG("CB %d using shared CB\n", cb_type);
+		cb->shared = true;
+	}
 
 	/* MAP ipa-uc ram */
 	add_map = of_get_property(dev->of_node,
