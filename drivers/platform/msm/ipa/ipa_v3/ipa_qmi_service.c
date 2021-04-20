@@ -1220,7 +1220,15 @@ int ipa3_qmi_enable_force_clear_datapath_send(
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc = 0;
 
-	if (!req || !req->source_pipe_bitmask) {
+	if (!req ||
+	    !((ipa3_ctx->ipa_hw_type < IPA_HW_v5_0 &&
+	       req->source_pipe_bitmask) ||
+	      (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0 &&
+	       req->source_pipe_bitmask_ext_valid &&
+	       (req->source_pipe_bitmask_ext[0] ||
+		req->source_pipe_bitmask_ext[1] ||
+		req->source_pipe_bitmask_ext[2] ||
+		req->source_pipe_bitmask_ext[3])))) {
 		IPAWANERR("invalid params\n");
 		return -EINVAL;
 	}
@@ -1439,6 +1447,7 @@ static void ipa3_q6_clnt_quota_reached_ind_cb(struct qmi_handle *handle,
 	const void *data)
 {
 	struct ipa_data_usage_quota_reached_ind_msg_v01 *qmi_ind;
+	bool data_warning = false;
 
 	if (handle != ipa_q6_clnt) {
 		IPAWANERR("Wrong client\n");
@@ -1447,10 +1456,18 @@ static void ipa3_q6_clnt_quota_reached_ind_cb(struct qmi_handle *handle,
 
 	qmi_ind = (struct ipa_data_usage_quota_reached_ind_msg_v01 *) data;
 
-	IPAWANDBG("Quota reached indication on qmux(%d) Mbytes(%lu)\n",
-		qmi_ind->apn.mux_id, (unsigned long) qmi_ind->apn.num_Mbytes);
+#ifdef IPA_DATA_WARNING_QUOTA
+	data_warning = (qmi_ind->is_warning_limit_valid &&
+		qmi_ind->is_warning_limit);
+	if (qmi_ind->is_warning_limit_valid && qmi_ind->is_warning_limit)
+		IPAWANDBG("Warning reached indication on qmux(%d) Mbytes(%lu)\n",
+			qmi_ind->apn.mux_id, (unsigned long) qmi_ind->apn.num_Mbytes);
+	else
+#endif
+		IPAWANDBG("Quota reached indication on qmux(%d) Mbytes(%lu)\n",
+			qmi_ind->apn.mux_id, (unsigned long) qmi_ind->apn.num_Mbytes);
 	ipa3_broadcast_quota_reach_ind(qmi_ind->apn.mux_id,
-		IPA_UPSTEAM_MODEM);
+		IPA_UPSTEAM_MODEM, data_warning);
 }
 
 static void ipa3_q6_clnt_install_firewall_rules_ind_cb(
@@ -2091,14 +2108,12 @@ int ipa3_qmi_set_aggr_info(enum ipa_aggr_enum_type_v01 aggr_enum_type)
 		resp.resp.error, "ipa_mhi_prime_aggr_info_req_msg_v01");
 }
 
-int ipa3_qmi_stop_data_qouta(void)
+int ipa3_qmi_stop_data_quota(struct ipa_stop_data_usage_quota_req_msg_v01 *req)
 {
-	struct ipa_stop_data_usage_quota_req_msg_v01 req;
 	struct ipa_stop_data_usage_quota_resp_msg_v01 resp;
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc;
 
-	memset(&req, 0, sizeof(struct ipa_stop_data_usage_quota_req_msg_v01));
 	memset(&resp, 0, sizeof(struct ipa_stop_data_usage_quota_resp_msg_v01));
 
 	req_desc.max_msg_len =
@@ -2115,7 +2130,7 @@ int ipa3_qmi_stop_data_qouta(void)
 	if (unlikely(!ipa_q6_clnt))
 		return -ETIMEDOUT;
 	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
-		&req_desc, &req,
+		&req_desc, req,
 		&resp_desc, &resp,
 		QMI_SEND_STATS_REQ_TIMEOUT_MS);
 
