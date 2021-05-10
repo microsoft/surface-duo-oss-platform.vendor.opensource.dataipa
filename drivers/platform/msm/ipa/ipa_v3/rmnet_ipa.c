@@ -2095,6 +2095,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		/* Get MTU */
 		case RMNET_IOCTL_GET_MTU:
 			mux_channel = rmnet_ipa3_ctx->mux_channel;
+			ext_ioctl_data.u.mtu_params.if_name
+				[IFNAMSIZ-1] = '\0';
 			rmnet_index =
 				find_vchannel_name_index(ext_ioctl_data.u.mtu_params.if_name);
 
@@ -2115,6 +2117,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		/* Set MTU */
 		case RMNET_IOCTL_SET_MTU:
 			mux_channel = rmnet_ipa3_ctx->mux_channel;
+			ext_ioctl_data.u.mtu_params.if_name
+				[IFNAMSIZ-1] = '\0';
 			rmnet_index =
 				find_vchannel_name_index(ext_ioctl_data.u.mtu_params.if_name);
 
@@ -2144,11 +2148,12 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			if (mtu_v4_set && mtu_v6_set)
 				iptype = IPA_IP_MAX;
 
-			rc = rmnet_ipa_send_set_mtu_notification(
-					ext_ioctl_data.u.mtu_params.if_name,
-					mux_channel[rmnet_index].mtu_v4,
-					mux_channel[rmnet_index].mtu_v6,
-					iptype);
+			if (mtu_v4_set || mtu_v6_set)
+				rc = rmnet_ipa_send_set_mtu_notification(
+						ext_ioctl_data.u.mtu_params.if_name,
+						mux_channel[rmnet_index].mtu_v4,
+						mux_channel[rmnet_index].mtu_v6,
+						iptype);
 
 			break;
 		default:
