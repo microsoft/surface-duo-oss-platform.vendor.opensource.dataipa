@@ -236,6 +236,7 @@ static int ipa3_setup_a7_qmap_hdr(void)
 	hdr->num_hdrs = 1;
 	hdr->commit = 1;
 	hdr_entry = &hdr->hdr[0];
+	hdr_entry->status = IPA_HDR_TO_DDR_PATTERN;
 
 	strlcpy(hdr_entry->name, IPA_A7_QMAP_HDR_NAME,
 				IPA_RESOURCE_NAME_MAX);
@@ -369,6 +370,7 @@ static int ipa3_add_qmap_hdr(uint32_t mux_id, uint32_t *hdr_hdl)
 	hdr->num_hdrs = 1;
 	hdr->commit = 1;
 	hdr_entry = &hdr->hdr[0];
+	hdr_entry->status = IPA_HDR_TO_DDR_PATTERN;
 
 	snprintf(hdr_name, IPA_RESOURCE_NAME_MAX, "%s%d",
 		 A2_MUX_HDR_NAME_V4_PREF,
@@ -467,6 +469,7 @@ static int ipa3_setup_dflt_wan_rt_tables(void)
 	rt_rule_entry[WAN_RT_COMMON].rule.dst = IPA_CLIENT_APPS_WAN_CONS;
 	rt_rule_entry[WAN_RT_COMMON].rule.hdr_hdl =
 		rmnet_ipa3_ctx->qmap_hdr_hdl;
+	rt_rule_entry[WAN_RT_COMMON].rule.hashable = true;
 
 	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0) {
 		rt_rule_entry[WAN_RT_ICMP].at_rear = 0;
@@ -1734,6 +1737,8 @@ static int handle3_egress_format(struct net_device *dev,
 		/* send aggr_info_qmi */
 		rc = ipa3_qmi_set_aggr_info(DATA_AGGR_TYPE_QMAP_V01);
 		rmnet_ipa3_ctx->ipa_mhi_aggr_formet_set = true;
+		/* register Q6 indication */
+		rc = ipa3_qmi_req_ind();
 		return rc;
 	}
 
@@ -2990,7 +2995,6 @@ static int rmnet_ipa_send_set_mtu_notification(char *if_name,
 
 int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 {
-	uint32_t bw_mbps = 0;
 	int ret = 0;
 	char alert_msg[IPA_UPSTREAM_ALERT_MAX_SIZE];
 	char wan_iface[IPA_UPSTREAM_ALERT_MAX_SIZE];
@@ -3002,29 +3006,10 @@ int ipa3_wwan_set_modem_state(struct wan_ioctl_notify_wan_state *state)
 	if (!state)
 		return -EINVAL;
 
-	if (state->up) {
-		if (rmnet_ipa3_ctx->ipa_config_is_apq) {
-			bw_mbps = 5200;
-			ret = ipa3_vote_for_bus_bw(&bw_mbps);
-			if (ret) {
-				IPAERR("Failed to vote for bus BW (%u)\n",
-							bw_mbps);
-				return ret;
-			}
-		}
+	if (state->up)
 		ret = ipa_pm_activate_sync(rmnet_ipa3_ctx->q6_teth_pm_hdl);
-	} else {
-		if (rmnet_ipa3_ctx->ipa_config_is_apq) {
-			bw_mbps = 0;
-			ret = ipa3_vote_for_bus_bw(&bw_mbps);
-			if (ret) {
-				IPAERR("Failed to vote for bus BW (%u)\n",
-							bw_mbps);
-				return ret;
-			}
-		}
+	else
 		ret = ipa_pm_deactivate_sync(rmnet_ipa3_ctx->q6_teth_pm_hdl);
-	}
 
 	/* Send upstream state uevent if RSC/RSB is enabled. */
 	if (IPA_NETDEV() && (IPA_NETDEV()->features & NETIF_F_GRO_HW)) {
@@ -3617,7 +3602,8 @@ static int rmnet_ipa_ap_resume(struct device *dev)
 
 	IPAWANDBG("Enter...\n");
 	/* Clear the suspend in progress flag. */
-	atomic_set(&rmnet_ipa3_ctx->ap_suspend, 0);
+	if (rmnet_ipa3_ctx)
+		atomic_set(&rmnet_ipa3_ctx->ap_suspend, 0);
 	if (netdev) {
 		netif_device_attach(netdev);
 		netif_trans_update(netdev);

@@ -2132,6 +2132,69 @@ static int ipa3_send_mac_flt_list(unsigned long usr_param)
 	return 0;
 }
 
+static int ipa3_send_sw_flt_list(unsigned long usr_param)
+{
+	int retval;
+	struct ipa_msg_meta msg_meta;
+	struct ipa_ioc_sw_flt_list_type sw_flt_list;
+	void *buff;
+
+	if (copy_from_user(&sw_flt_list, (const void __user *)usr_param,
+		sizeof(struct ipa_ioc_sw_flt_list_type))) {
+		IPAERR("Copy ipa_ioc_sw_flt_list_type failure\n");
+		return -EFAULT;
+	}
+
+	if (sw_flt_list.ioctl_data_size !=
+		sizeof(struct ipa_sw_flt_list_type)) {
+		IPAERR("IPA_IOC_SET_SW_FLT size not match(%d,%d)!\n",
+		sw_flt_list.ioctl_data_size,
+		sizeof(struct ipa_sw_flt_list_type));
+		return -EFAULT;
+	}
+
+	buff = kzalloc(sizeof(struct ipa_sw_flt_list_type),
+				GFP_KERNEL);
+	if (!buff) {
+		IPAERR("ipa_sw_flt_list_type mem-allocate failure\n");
+		return -ENOMEM;
+	}
+
+	if (copy_from_user(buff, u64_to_user_ptr(sw_flt_list.ioctl_ptr),
+		sizeof(struct ipa_sw_flt_list_type))) {
+		IPAERR("Failed to copy ipa_sw_flt_list_type\n");
+		kfree(buff);
+		return -EFAULT;
+	}
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_SW_FLT_EVENT;
+	msg_meta.msg_len = sizeof(struct ipa_sw_flt_list_type);
+
+	IPADBG("No of clients: %d, mac-flt enable: %d\n",
+		((struct ipa_sw_flt_list_type *)buff)->num_of_mac,
+		((struct ipa_sw_flt_list_type *)buff)->mac_enable);
+
+	IPADBG("No of segs: %d, ipv4-seg-flt enable: %d v6-offload %d\n",
+		((struct ipa_sw_flt_list_type *)buff)->num_of_ipv4_segs,
+		((struct ipa_sw_flt_list_type *)buff)->ipv4_segs_enable,
+		((struct ipa_sw_flt_list_type *)buff)->ipv4_segs_ipv6_offload);
+
+	IPADBG("No of ifaces: %d, iface-flt enable: %d\n",
+		((struct ipa_sw_flt_list_type *)buff)->num_of_iface,
+		((struct ipa_sw_flt_list_type *)buff)->iface_enable);
+
+	retval = ipa3_send_msg(&msg_meta, buff,
+		ipa3_mac_flt_list_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		retval,
+		msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	return 0;
+}
+
 static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
@@ -3368,7 +3431,16 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case IPA_IOC_SET_MAC_FLT:
+		IPADBG("Got IPA_IOC_SET_MAC_FLT\n");
 		if (ipa3_send_mac_flt_list(arg)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_SET_SW_FLT:
+		IPADBG("Got IPA_IOC_SET_SW_FLT\n");
+		if (ipa3_send_sw_flt_list(arg)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -3516,6 +3588,7 @@ static int ipa3_setup_exception_path(void)
 	struct ipa_ioc_add_hdr *hdr;
 	struct ipa_hdr_add *hdr_entry;
 	struct ipahal_reg_route route = { 0 };
+	struct ipa3_hdr_entry *hdr_entry_internal;
 	int ret;
 
 	/* install the basic exception header */
@@ -3543,13 +3616,20 @@ static int ipa3_setup_exception_path(void)
 		goto bail;
 	}
 
+	hdr_entry_internal = ipa3_id_find(hdr_entry->hdr_hdl);
+	if (unlikely(!hdr_entry_internal)) {
+		IPAERR("fail to find internal hdr structure\n");
+		ret = -EPERM;
+		goto bail;
+	}
+
 	ipa3_ctx->excp_hdr_hdl = hdr_entry->hdr_hdl;
 
 	/* set the route register to pass exception packets to Apps */
 	route.route_def_pipe = ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
 	route.route_frag_def_pipe = ipa3_get_ep_mapping(
 		IPA_CLIENT_APPS_LAN_CONS);
-	route.route_def_hdr_table = !ipa3_ctx->hdr_tbl_lcl;
+	route.route_def_hdr_table = !hdr_entry_internal->is_lcl;
 	route.route_def_retain_hdr = 1;
 
 	if (ipa3_cfg_route(&route)) {
@@ -4647,14 +4727,14 @@ int _ipa_init_sram_v3(void)
 		IPA_MEM_PART(modem_hdr_proc_ctx_ofst));
 	if (ipa_get_hw_type_internal() >= IPA_HW_v4_5
 		&& ipa_get_hw_type_internal() < IPA_HW_v5_0) {
+		/* 4.5, 4.7, 4.9, 4.11 */
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			IPA_MEM_PART(nat_tbl_ofst) - 12);
-	} else if (ipa_get_hw_type_internal() >= IPA_HW_v5_0) {
-		ipa3_sram_set_canary(ipa_sram_mmio,
-			IPA_MEM_PART(nat_tbl_ofst) - 28);
 	}
+
 	if (ipa_get_hw_type_internal() >= IPA_HW_v4_0) {
 		if (ipa_get_hw_type_internal() < IPA_HW_v4_5) {
+			/* 4.0, 4.1, 4.2 */
 			ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(pdn_config_ofst) - 4);
 			ipa3_sram_set_canary(ipa_sram_mmio,
@@ -4663,12 +4743,20 @@ int _ipa_init_sram_v3(void)
 				IPA_MEM_PART(stats_quota_q6_ofst) - 4);
 			ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(stats_quota_q6_ofst));
-		} else {
+		} else if (ipa_get_hw_type_internal() < IPA_HW_v5_0) {
+			/* 4.5, 4.7, 4.11 */
 			ipa3_sram_set_canary(ipa_sram_mmio,
 				IPA_MEM_PART(stats_quota_q6_ofst) - 12);
+		} else {
+			/* 5.0 and above */
+			ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(stats_quota_q6_ofst) - 4);
+			ipa3_sram_set_canary(ipa_sram_mmio,
+				IPA_MEM_PART(stats_quota_q6_ofst));
 		}
 	}
 
+	/* all excluding 3.5.1, 4.0, 4.1, 4.2 */
 	if (ipa_get_hw_type_internal() <= IPA_HW_v3_5 ||
 		ipa_get_hw_type_internal() >= IPA_HW_v4_5) {
 		ipa3_sram_set_canary(ipa_sram_mmio,
@@ -4676,8 +4764,22 @@ int _ipa_init_sram_v3(void)
 		ipa3_sram_set_canary(ipa_sram_mmio, IPA_MEM_PART(modem_ofst));
 	}
 
+	if (ipa_get_hw_type_internal() == IPA_HW_v5_0) {
+		ipa3_sram_set_canary(ipa_sram_mmio,
+			IPA_MEM_PART(apps_v4_flt_nhash_ofst) - 4);
+		ipa3_sram_set_canary(ipa_sram_mmio,
+			IPA_MEM_PART(apps_v4_flt_nhash_ofst));
+		ipa3_sram_set_canary(ipa_sram_mmio,
+			IPA_MEM_PART(stats_fnr_ofst) - 4);
+		ipa3_sram_set_canary(ipa_sram_mmio,
+			IPA_MEM_PART(stats_fnr_ofst));
+	}
+
 	if (ipa_get_hw_type_internal() >= IPA_HW_v5_0) {
-		ipa3_sram_set_canary(ipa_sram_mmio, IPA_MEM_PART(pdn_config_ofst));
+		ipa3_sram_set_canary(ipa_sram_mmio,
+			IPA_MEM_PART(pdn_config_ofst - 4));
+		ipa3_sram_set_canary(ipa_sram_mmio,
+			IPA_MEM_PART(pdn_config_ofst));
 	} else {
 		ipa3_sram_set_canary(ipa_sram_mmio,
 			(ipa_get_hw_type_internal() >= IPA_HW_v3_5) ?
@@ -5528,7 +5630,7 @@ static const struct file_operations ipa3_drv_fops = {
 
 static int ipa3_get_clks(struct device *dev)
 {
-	if (ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_NORMAL) {
+	if (!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode)) {
 		IPADBG("not supported in this HW mode\n");
 		ipa3_clk = NULL;
 		return 0;
@@ -5599,7 +5701,7 @@ void ipa3_enable_clks(void)
 	int idx;
 	int i;
 
-	if (ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_NORMAL) {
+	if (!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode)) {
 		IPAERR("not supported in this mode\n");
 		return;
 	}
@@ -5644,7 +5746,7 @@ void ipa3_disable_clks(void)
 	int i;
 	int type;
 
-	if (ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_NORMAL) {
+	if (!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode)) {
 		IPAERR("not supported in this mode\n");
 		return;
 	}
@@ -5662,12 +5764,14 @@ void ipa3_disable_clks(void)
 	 * issue on GSI FW side. We need to capture before
 	 * turn off the ipa clock.
 	 */
-	type = gsi_pending_irq_type();
-	if (type) {
-		IPAERR("unexpected gsi irq type: %d\n", type);
-		/* increase ipa3_active_clients for smp2p response */
-		atomic_inc(&ipa3_ctx->ipa3_active_clients.cnt);
-		ipa_assert();
+	if (!ipa3_ctx->ipa_config_is_mhi) {
+		type = gsi_pending_irq_type();
+		if (type) {
+			IPAERR("unexpected gsi irq type: %d\n", type);
+			/* increase ipa3_active_clients for smp2p response */
+			atomic_inc(&ipa3_ctx->ipa3_active_clients.cnt);
+			ipa_assert();
+		}
 	}
 
 	ipa3_ctx->ctrl->ipa3_disable_clks();
@@ -6066,7 +6170,7 @@ int ipa3_set_clock_plan_from_pm(int idx)
 		return 0;
 	}
 
-	if (ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_NORMAL) {
+	if (!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode)) {
 		IPAERR("not supported in this mode\n");
 		return 0;
 	}
@@ -6130,7 +6234,7 @@ int ipa3_set_required_perf_profile(enum ipa_voltage_level floor_voltage,
 	int i;
 	int idx;
 
-	if (ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_NORMAL) {
+	if (!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode)) {
 		IPAERR("not supported in this mode\n");
 		return 0;
 	}
@@ -6615,12 +6719,20 @@ static inline void ipa3_register_to_fmwk(void)
 	data.ipa_rmnet_ctl_xmit = ipa3_rmnet_ctl_xmit;
 	data.ipa_register_rmnet_ctl_cb = ipa3_register_rmnet_ctl_cb;
 	data.ipa_unregister_rmnet_ctl_cb = ipa3_unregister_rmnet_ctl_cb;
-	data.ipa_enable_wdi_pipe = ipa3_enable_wdi_pipe;
-	data.ipa_disable_wdi_pipe = ipa3_disable_wdi_pipe;
+	if (ipa3_ctx->use_pm_wrapper) {
+		data.ipa_enable_wdi_pipe = ipa_pm_wrapper_enable_wdi_pipe;
+		data.ipa_disable_wdi_pipe = ipa_pm_wrapper_disable_pipe;
+		data.ipa_connect_wdi_pipe = ipa_pm_wrapper_connect_wdi_pipe;
+		data.ipa_disconnect_wdi_pipe = ipa_pm_wrapper_disconnect_wdi_pipe;
+	}
+	else {
+		data.ipa_enable_wdi_pipe = ipa3_enable_wdi_pipe;
+		data.ipa_disable_wdi_pipe = ipa3_disable_wdi_pipe;
+		data.ipa_connect_wdi_pipe = ipa3_connect_wdi_pipe;
+		data.ipa_disconnect_wdi_pipe = ipa3_disconnect_wdi_pipe;
+	}
 	data.ipa_resume_wdi_pipe = ipa3_resume_wdi_pipe;
 	data.ipa_suspend_wdi_pipe = ipa3_suspend_wdi_pipe;
-	data.ipa_connect_wdi_pipe = ipa3_connect_wdi_pipe;
-	data.ipa_disconnect_wdi_pipe = ipa3_disconnect_wdi_pipe;
 	data.ipa_uc_reg_rdyCB = ipa3_uc_reg_rdyCB;
 	data.ipa_uc_dereg_rdyCB = ipa3_uc_dereg_rdyCB;
 
@@ -6732,9 +6844,8 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	IPADBG("SRAM, size: 0x%x, restricted bytes: 0x%x\n",
 		ipa3_ctx->smem_sz, ipa3_ctx->smem_restricted_bytes);
 
-	IPADBG("hdr_lcl=%u ip4_rt_hash=%u ip4_rt_nonhash=%u\n",
-		ipa3_ctx->hdr_tbl_lcl, ipa3_ctx->ip4_rt_tbl_hash_lcl,
-		ipa3_ctx->ip4_rt_tbl_nhash_lcl);
+	IPADBG("ip4_rt_hash=%u ip4_rt_nonhash=%u\n",
+		ipa3_ctx->ip4_rt_tbl_hash_lcl, ipa3_ctx->ip4_rt_tbl_nhash_lcl);
 
 	IPADBG("ip6_rt_hash=%u ip6_rt_nonhash=%u\n",
 		ipa3_ctx->ip6_rt_tbl_hash_lcl, ipa3_ctx->ip6_rt_tbl_nhash_lcl);
@@ -6817,16 +6928,37 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		INIT_LIST_HEAD(&flt_tbl->head_flt_rule_list);
 		flt_tbl->in_sys[IPA_RULE_HASHABLE] =
 			!ipa3_ctx->ip4_flt_tbl_hash_lcl;
-		flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] =
+
+		/*	For ETH client place Non-Hash FLT table in SRAM if allowed, for
+			all other EPs always place the table in DDR */
+		if (IPA_CLIENT_IS_ETH_PROD(i))
+			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] =
 			!ipa3_ctx->ip4_flt_tbl_nhash_lcl;
+		else
+			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = true;
+
+		/* Init force sys to false */
+		flt_tbl->force_sys[IPA_RULE_HASHABLE] = false;
+		flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] = false;
+
 		flt_tbl->rule_ids = &ipa3_ctx->flt_rule_ids[IPA_IP_v4];
 
 		flt_tbl = &ipa3_ctx->flt_tbl[i][IPA_IP_v6];
 		INIT_LIST_HEAD(&flt_tbl->head_flt_rule_list);
 		flt_tbl->in_sys[IPA_RULE_HASHABLE] =
 			!ipa3_ctx->ip6_flt_tbl_hash_lcl;
-		flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] =
+		/*	For ETH client place Non-Hash FLT table in SRAM if allowed, for
+			all other EPs always place the table in DDR */
+		if (IPA_CLIENT_IS_ETH_PROD(i))
+			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] =
 			!ipa3_ctx->ip6_flt_tbl_nhash_lcl;
+		else
+			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = true;
+
+		/* Init force sys to false */
+		flt_tbl->force_sys[IPA_RULE_HASHABLE] = false;
+		flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] = false;
+
 		flt_tbl->rule_ids = &ipa3_ctx->flt_rule_ids[IPA_IP_v6];
 	}
 
@@ -6956,6 +7088,14 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		IPAERR("fail to init stats %d\n", result);
 	else
 		IPADBG(":stats init ok\n");
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
+		result = ipa_init_flt_rt_stats();
+		if (result)
+			IPAERR("fail to init FnR stats %d\n", result);
+		else
+			IPADBG(":FnR stats init ok\n");
+	}
 
 	result = ipa_drop_stats_init();
 	if (result)
@@ -7269,6 +7409,7 @@ static void ipa3_load_ipa_fw(struct work_struct *work)
 		if (result) {
 			IPAERR("IPA uC loading process has failed result=%d\n",
 				result);
+			ipa3_proxy_clk_unvote();
 			return;
 		}
 		IPADBG("IPA uC loading succeeded\n");
@@ -7723,6 +7864,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	struct ipa3_rt_tbl_set *rset;
 	struct ipa_active_client_logging_info log_info;
 	struct cdev *cdev;
+	enum hdr_tbl_storage hdr_tbl;
 
 	IPADBG("IPA Driver initialization started\n");
 
@@ -7787,6 +7929,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->stats.page_recycle_stats[0].tmp_alloc = 0;
 	ipa3_ctx->stats.page_recycle_stats[1].total_replenished = 0;
 	ipa3_ctx->stats.page_recycle_stats[1].tmp_alloc = 0;
+	memset(ipa3_ctx->stats.page_recycle_cnt, 0,
+		sizeof(ipa3_ctx->stats.page_recycle_cnt));
 	ipa3_ctx->skip_uc_pipe_reset = resource_p->skip_uc_pipe_reset;
 	ipa3_ctx->tethered_flow_control = resource_p->tethered_flow_control;
 	ipa3_ctx->ee = resource_p->ee;
@@ -7826,6 +7970,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ulso_supported = resource_p->ulso_supported;
 	ipa3_ctx->ulso_ip_id_min = resource_p->ulso_ip_id_min;
 	ipa3_ctx->ulso_ip_id_max = resource_p->ulso_ip_id_max;
+	ipa3_ctx->use_pm_wrapper = resource_p->use_pm_wrapper;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -7879,7 +8024,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ipa_endp_delay_wa = resource_p->ipa_endp_delay_wa;
 	ipa3_ctx->ipa_endp_delay_wa_v2 = resource_p->ipa_endp_delay_wa_v2;
 
-	WARN(ipa3_ctx->ipa3_hw_mode != IPA_HW_MODE_NORMAL,
+	WARN(!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode),
 		"Non NORMAL IPA HW mode, is this emulation platform ?");
 
 	if (resource_p->ipa_tz_unlock_reg) {
@@ -7980,6 +8125,13 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 
 	/* Enable ipa3_ctx->enable_napi_chain */
 	ipa3_ctx->enable_napi_chain = 1;
+
+	/* Initialize Page poll threshold. */
+	ipa3_ctx->page_poll_threshold = IPA_PAGE_POLL_DEFAULT_THRESHOLD;
+
+	/* Use common page pool for Def/Coal pipe. */
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1)
+		ipa3_ctx->wan_common_page_pool = true;
 
 	/* assume clock is on in virtual/emulation mode */
 	if (ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_VIRTUAL ||
@@ -8126,11 +8278,13 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_rx_pkt_wrapper_cache;
 	}
 
-	/* init the various list heads */
-	INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl.head_hdr_entry_list);
-	for (i = 0; i < IPA_HDR_BIN_MAX; i++) {
-		INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl.head_offset_list[i]);
-		INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl.head_free_offset_list[i]);
+	/* Init the various list heads for both SRAM/DDR */
+	for (hdr_tbl = HDR_TBL_LCL; hdr_tbl < HDR_TBLS_TOTAL; hdr_tbl++) {
+		INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl[hdr_tbl].head_hdr_entry_list);
+		for (i = 0; i < IPA_HDR_BIN_MAX; i++) {
+			INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl[hdr_tbl].head_offset_list[i]);
+			INIT_LIST_HEAD(&ipa3_ctx->hdr_tbl[hdr_tbl].head_free_offset_list[i]);
+		}
 	}
 	INIT_LIST_HEAD(&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list);
 	for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {
@@ -8289,7 +8443,8 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_wwan_init;
 	}
 
-	if (ipa3_ctx->rmnet_ctl_enable) {
+	if (ipa3_ctx->rmnet_ctl_enable &&
+		ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
 		result = ipa3_rmnet_ctl_init();
 		if (result) {
 			IPAERR(":ipa3_rmnet_ctl_init err=%d\n", -result);
@@ -8639,7 +8794,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->ipa_mhi_dynamic_config = false;
 	ipa_drv_res->use_64_bit_dma_mask = false;
 	ipa_drv_res->use_bw_vote = false;
-	ipa_drv_res->wan_rx_ring_size = IPA_GENERIC_RX_POOL_SZ;
+	ipa_drv_res->wan_rx_ring_size = IPA_GENERIC_RX_POOL_SZ_WAN;
 	ipa_drv_res->lan_rx_ring_size = IPA_GENERIC_RX_POOL_SZ;
 	ipa_drv_res->apply_rg10_wa = false;
 	ipa_drv_res->gsi_ch20_wa = false;
@@ -9041,6 +9196,14 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 		"qcom,do-not-use-ch-gsi-20");
 	IPADBG(": GSI CH 20 WA is = %s\n",
 		ipa_drv_res->gsi_ch20_wa
+		? "Needed" : "Not needed");
+
+	ipa_drv_res->use_pm_wrapper = false;
+	ipa_drv_res->use_pm_wrapper =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,use-wrapper-pm-support");
+	IPADBG(": Use PM wrapper Support = %s\n",
+		ipa_drv_res->use_pm_wrapper
 		? "Needed" : "Not needed");
 
 	elem_num = of_property_count_elems_of_size(pdev->dev.of_node,

@@ -43,6 +43,15 @@
 #define GSI_MSB(num) ((u32)((num & GSI_MSB_MASK) >> 32))
 #define GSI_LSB(num) ((u32)(num & GSI_LSB_MASK))
 
+#define GSI_INST_RAM_FW_VER_OFFSET			(0)
+#define GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET	(64)
+#define GSI_INST_RAM_FW_VER_HW_MASK			(0xFC00)
+#define GSI_INST_RAM_FW_VER_HW_SHIFT		(10)
+#define GSI_INST_RAM_FW_VER_FLAVOR_MASK		(0x380)
+#define GSI_INST_RAM_FW_VER_FLAVOR_SHIFT	(7)
+#define GSI_INST_RAM_FW_VER_FW_MASK			(0x7f)
+#define GSI_INST_RAM_FW_VER_FW_SHIFT		(0)
+
 #ifndef CONFIG_DEBUG_FS
 void gsi_debugfs_init(void)
 {
@@ -2407,6 +2416,7 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 	case GSI_CHAN_PROT_11AD:
 	case GSI_CHAN_PROT_RTK:
 	case GSI_CHAN_PROT_QDSS:
+	case GSI_CHAN_PROT_NTN:
 		ch_k_cntxt_0.chtype_protocol_msb = 1;
 		break;
 	default:
@@ -4927,24 +4937,80 @@ int gsi_get_refetch_reg(unsigned long chan_hdl, bool is_rp)
 }
 EXPORT_SYMBOL(gsi_get_refetch_reg);
 
-int gsi_get_drop_stats(unsigned long ep_id, int scratch_id)
+int gsi_get_drop_stats(unsigned long ep_id, int scratch_id,
+	unsigned long chan_hdl)
 {
-	/* RTK use scratch 5 */
-	if (scratch_id == 5) {
-		/*
-		 * each channel context is 6 lines of 8 bytes, but n in SHRAM_n
-		 * is in 4 bytes offsets, so multiplying ep_id by 6*2=12 will
-		 * give the beginning of the required channel context, and then
-		 * need to add 7 since the channel context layout has the ring
-		 * rbase (8 bytes) + channel scratch 0-4 (20 bytes) so adding
-		 * additional 28/4 = 7 to get to scratch 5 of the required
-		 * channel.
-		 */
-		gsihal_read_reg_n(GSI_GSI_SHRAM_n, ep_id * 12 + 7);
+#define GSI_RTK_ERR_STATS_MASK 0xFFFF
+#define GSI_NTN_ERR_STATS_MASK 0xFFFFFFFF
+#define GSI_AQC_RX_STATUS_MASK 0x1FFF
+#define GSI_AQC_RX_STATUS_SHIFT 0
+#define GSI_AQC_RDM_ERR_MASK 0x1FFF0000
+#define GSI_AQC_RDM_ERR_SHIFT 16
+
+	uint16_t rx_status;
+	uint16_t rdm_err;
+	uint32_t val;
+
+	/* on newer versions we can read the ch scratch directly from reg */
+	if (gsi_ctx->per.ver >= GSI_VER_3_0) {
+		switch (scratch_id) {
+		case 5:
+			return gsihal_read_reg_nk(
+				GSI_EE_n_GSI_CH_k_SCRATCH_5,
+				gsi_ctx->per.ee,
+				chan_hdl) & GSI_RTK_ERR_STATS_MASK;
+			break;
+		case 6:
+			return gsihal_read_reg_nk(
+				GSI_EE_n_GSI_CH_k_SCRATCH_6,
+				gsi_ctx->per.ee,
+				chan_hdl) & GSI_NTN_ERR_STATS_MASK;
+			break;
+		case 7:
+			val = gsihal_read_reg_nk(
+				GSI_EE_n_GSI_CH_k_SCRATCH_7,
+				gsi_ctx->per.ee,
+				chan_hdl);
+			rx_status = (val & GSI_AQC_RX_STATUS_MASK)
+				>> GSI_AQC_RX_STATUS_SHIFT;
+			rdm_err = (val & GSI_AQC_RDM_ERR_MASK)
+				>> (GSI_AQC_RDM_ERR_SHIFT);
+			return rx_status + rdm_err;
+			break;
+		default:
+			GSIERR("invalid scratch id %d\n", scratch_id);
+			return 0;
+		}
+
+	/* on older versions we need to read the scratch from SHRAM */
+	} else {
+		/* RTK use scratch 5 */
+		if (scratch_id == 5) {
+			/*
+			 * each channel context is 6 lines of 8 bytes, but n in
+			 * SHRAM_n is in 4 bytes offsets, so multiplying ep_id
+			 * by 6*2=12 will give the beginning of the required
+			 * channel context, and then need to add 7 since the
+			 * channel context layout has the ring rbase (8 bytes)
+			 * + channel scratch 0-4 (20 bytes) so adding
+			 * additional 28/4 = 7 to get to scratch 5 of the
+			 * required channel.
+			 */
+			return gsihal_read_reg_n(
+				GSI_GSI_SHRAM_n,
+				ep_id * 12 + 7) & GSI_RTK_ERR_STATS_MASK;
+		}
 	}
 	return 0;
 }
 EXPORT_SYMBOL(gsi_get_drop_stats);
+
+int gsi_get_wp(unsigned long chan_hdl)
+{
+	return gsihal_read_reg_nk(GSI_EE_n_GSI_CH_k_CNTXT_6, gsi_ctx->per.ee,
+		chan_hdl);
+}
+EXPORT_SYMBOL(gsi_get_wp);
 
 void gsi_wdi3_dump_register(unsigned long chan_hdl)
 {
@@ -5069,6 +5135,79 @@ static union __packed gsi_channel_scratch __gsi_update_mhi_channel_scratch(
 
 	return scr;
 }
+/**
+ * gsi_get_hw_profiling_stats() - Query GSI HW profiling stats
+ * @stats:	[out] stats blob from client populated by driver
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ */
+int gsi_get_hw_profiling_stats(struct gsi_hw_profiling_data *stats)
+{
+	if (stats == NULL) {
+		GSIERR("bad parms NULL stats == NULL\n");
+		return -EINVAL;
+	}
+
+	stats->bp_cnt = (u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_BP_CNT_LSB) +
+						((u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_BP_CNT_MSB) << 32);
+	stats->bp_and_pending_cnt = (u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_LSB) +
+						((u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_BP_AND_PENDING_CNT_MSB) << 32);
+	stats->mcs_busy_cnt = (u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_LSB) +
+						((u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_MCS_BUSY_CNT_MSB) << 32);
+	stats->mcs_idle_cnt = (u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_LSB) +
+						((u64)gsihal_read_reg(
+						GSI_GSI_MCS_PROFILING_MCS_IDLE_CNT_MSB) << 32);
+
+	return 0;
+}
+
+/**
+ * gsi_get_fw_version() - Query GSI FW version
+ * @ver:	[out] ver blob from client populated by driver
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ */
+int gsi_get_fw_version(struct gsi_fw_version *ver)
+{
+	u32 raw = 0;
+
+	if (ver == NULL) {
+		GSIERR("bad parms: ver == NULL\n");
+		return -EINVAL;
+	}
+
+	if (gsi_ctx->per.ver < GSI_VER_3_0)
+		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_n,
+			GSI_INST_RAM_FW_VER_OFFSET);
+	else
+		raw = gsihal_read_reg_n(GSI_GSI_INST_RAM_n,
+			GSI_INST_RAM_FW_VER_GSI_3_0_OFFSET);
+
+	ver->hw = (raw & GSI_INST_RAM_FW_VER_HW_MASK) >>
+				GSI_INST_RAM_FW_VER_HW_SHIFT;
+	ver->flavor = (raw & GSI_INST_RAM_FW_VER_FLAVOR_MASK) >>
+					GSI_INST_RAM_FW_VER_FLAVOR_SHIFT;
+	ver->fw = (raw & GSI_INST_RAM_FW_VER_FW_MASK) >>
+				GSI_INST_RAM_FW_VER_FW_SHIFT;
+
+	return 0;
+}
+
+void gsi_update_almst_empty_thrshold(unsigned long chan_hdl, unsigned short threshold)
+{
+	gsihal_write_reg_nk(GSI_EE_n_CH_k_CH_ALMST_EMPTY_THRSHOLD,
+		gsi_ctx->per.ee, chan_hdl, threshold);
+}
+EXPORT_SYMBOL(gsi_update_almst_empty_thrshold);
 
 static int msm_gsi_probe(struct platform_device *pdev)
 {
