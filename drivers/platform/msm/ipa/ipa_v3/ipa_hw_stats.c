@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -44,6 +44,10 @@ int ipa_hw_stats_init(void)
 
 	/* initialize stats here */
 	ipa3_ctx->hw_stats->enabled = true;
+
+	/* for IPA_HW_v5_0, reserved teth_stats sram for flt-tbls */
+	if (ipa3_ctx->ipa_hw_type == IPA_HW_v5_0)
+		return 0;
 
 	teth_stats_init = kzalloc(sizeof(*teth_stats_init), GFP_KERNEL);
 	if (!teth_stats_init) {
@@ -158,6 +162,13 @@ int ipa_hw_stats_init(void)
 			teth_stats_init->prod_mask[reg_idx] |= mask;
 		}
 
+		if (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_1) {
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
+				&reg_idx);
+			teth_stats_init->prod_mask[reg_idx] |= mask;
+		}
+
 		if (ipa_hw_stats_get_ep_bit_n_idx(
 			IPA_CLIENT_Q6_WAN_PROD,
 			&reg_idx)) {
@@ -190,7 +201,7 @@ int ipa_hw_stats_init(void)
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_WIGIG1_CONS,
 				&reg_idx);
-			teth_stats_init->dst_ep_mask[ep_index][reg_idx]	|= mask;
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
 			mask = ipa_hw_stats_get_ep_bit_n_idx(
 				IPA_CLIENT_WIGIG2_CONS,
 				&reg_idx);
@@ -209,7 +220,54 @@ int ipa_hw_stats_init(void)
 			IPA_CLIENT_Q6_DL_NLO_DATA_PROD,
 			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)) {
 			ep_index = ipa3_get_ep_mapping(
-					IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
+				IPA_CLIENT_Q6_DL_NLO_DATA_PROD);
+			if (ep_index == -1) {
+				IPAERR("Invalid client.\n");
+				ret = -EINVAL;
+				goto fail_free_stats_ctx;
+			}
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_USB_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] = mask;
+
+			if (ipa3_ctx->ipa_wdi3_over_gsi) {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN2_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			} else {
+				mask = ipa_hw_stats_get_ep_bit_n_idx(
+					IPA_CLIENT_WLAN1_CONS,
+					&reg_idx);
+				teth_stats_init->dst_ep_mask[ep_index][reg_idx]
+					|= mask;
+			}
+
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_WIGIG1_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_WIGIG2_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_WIGIG3_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+			mask = ipa_hw_stats_get_ep_bit_n_idx(
+				IPA_CLIENT_WIGIG4_CONS,
+				&reg_idx);
+			teth_stats_init->dst_ep_mask[ep_index][reg_idx] |= mask;
+		}
+
+		if (ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD,
+			&reg_idx) && (ipa3_ctx->ipa_hw_type >= IPA_HW_v5_0)) {
+			ep_index = ipa3_get_ep_mapping(
+					IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD);
 			if (ep_index == -1) {
 				IPAERR("Invalid client.\n");
 				ret = -EINVAL;
@@ -371,14 +429,13 @@ int ipa_hw_stats_init(void)
 
 
 	ret = ipa_init_teth_stats(teth_stats_init);
-	if (ret != 0)
+	if (ret != 0) {
 		IPAERR("init teth stats fails\n");
-	kfree(teth_stats_init);
-	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5) {
-		ret = ipa_init_flt_rt_stats();
-		if (ret != 0)
-			IPAERR("init flt rt stats fails\n");
+		goto fail_free_stats_ctx;
 	}
+
+	ipa3_ctx->hw_stats->teth_stats_enabled = true;
+	kfree(teth_stats_init);
 	return ret;
 
 fail_free_stats_ctx:
@@ -838,7 +895,7 @@ int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in)
 		}
 	}
 
-	IPADBG_LOW("prod_mask=[0x%x][0x%x]\n",
+	IPADBG("prod_mask=[0x%x][0x%x]\n",
 		in->prod_mask[0], in->prod_mask[1]);
 
 	/* reset driver's cache */
@@ -1030,7 +1087,8 @@ int ipa_get_teth_stats(void)
 	struct ipahal_stats_init_tethering *init;
 	int num_cmd = 0;
 
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
 	sw_stats = &ipa3_ctx->hw_stats->teth;
@@ -1202,7 +1260,8 @@ free_dma_mem:
 int ipa_query_teth_stats(enum ipa_client_type prod,
 	struct ipa_quota_stats_all *out, bool reset)
 {
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
 	if (!IPA_CLIENT_IS_PROD(prod) || ipa3_get_ep_mapping(prod) == -1) {
@@ -1223,7 +1282,8 @@ int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons)
 	int ret;
 	struct ipa_quota_stats *stats;
 
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
 	if (!IPA_CLIENT_IS_PROD(prod) || !IPA_CLIENT_IS_CONS(cons)) {
@@ -1250,7 +1310,8 @@ int ipa_reset_all_cons_teth_stats(enum ipa_client_type prod)
 	int i;
 	struct ipa_quota_stats *stats;
 
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
 	if (!IPA_CLIENT_IS_PROD(prod)) {
@@ -1280,7 +1341,8 @@ int ipa_reset_all_teth_stats(void)
 	int ret;
 	struct ipa_quota_stats_all *stats;
 
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
 	/* reading stats will reset them in hardware */
@@ -1784,7 +1846,12 @@ int ipa_drop_stats_init(void)
 			&reg_idx);
 		pipe_bitmask[reg_idx] |= mask;
 	}
-
+	if (ipa3_ctx->use_tput_est_ep) {
+		mask = ipa_hw_stats_get_ep_bit_n_idx(
+			IPA_CLIENT_TPUT_CONS,
+			&reg_idx);
+		pipe_bitmask[reg_idx] |= mask;
+	}
 	/* Always enable drop stats for USB DPL Pipe. */
 	mask = ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_USB_DPL_CONS,
@@ -2296,7 +2363,8 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 	if (!out)
 		return -ENOMEM;
 
-	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled))
+	if (!(ipa3_ctx->hw_stats && ipa3_ctx->hw_stats->enabled &&
+		ipa3_ctx->hw_stats->teth_stats_enabled))
 		return 0;
 
 	mutex_lock(&ipa3_ctx->lock);
@@ -2341,7 +2409,7 @@ static ssize_t ipa_debugfs_print_tethering_stats(struct file *file,
 			if (IPA_CLIENT_IS_TEST(j))
 				continue;
 
-			cons_reg = ipahal_get_ep_reg_idx(j);
+			cons_reg = ipahal_get_ep_reg_idx(cons_idx);
 			if (!(ipa3_ctx->hw_stats->teth.init.
 				cons_bitmask[ep_idx][cons_reg]
 				& ipahal_get_ep_bit(cons_idx)))
@@ -2445,7 +2513,7 @@ static ssize_t ipa_debugfs_print_flt_rt_stats(struct file *file,
 		return -ENOMEM;
 	query->start_id = 1;
 	query->end_id = IPA_MAX_FLT_RT_CNT_INDEX;
-	query->reset = true;
+	query->reset = false;
 	query->stats_size = sizeof(struct ipa_flt_rt_stats);
 	pyld_size = IPA_MAX_FLT_RT_CNT_INDEX *
 		sizeof(struct ipa_flt_rt_stats);

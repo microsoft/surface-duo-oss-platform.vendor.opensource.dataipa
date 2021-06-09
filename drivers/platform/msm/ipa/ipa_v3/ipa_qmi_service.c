@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -42,6 +42,7 @@ static bool workqueues_stopped;
 static bool ipa3_modem_init_cmplt;
 static bool first_time_handshake;
 static bool send_qmi_init_q6;
+static bool nat_move_qmi_disabled;
 struct mutex ipa3_qmi_lock;
 struct ipa_msg_desc {
 	uint16_t msg_id;
@@ -417,6 +418,80 @@ static void ipa3_handle_mhi_vote_req(struct qmi_handle *qmi_handle,
 		IPAWANDBG("Finished senting QMI_IPA_MHI_CLK_VOTE_RESP_V01\n");
 }
 
+static void ipa3_qmi_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	kfree(buff);
+}
+
+void ipa3_disable_move_nat_resp(void)
+{
+	nat_move_qmi_disabled = true;
+}
+
+static void ipa3_handle_move_nat_req(struct qmi_handle *qmi_handle,
+	struct sockaddr_qrtr *sq,
+	struct qmi_txn *txn,
+	const void *decoded_msg)
+{
+	struct ipa_move_nat_req_msg_v01 *move_req, *req_data;
+	struct ipa_move_nat_resp_msg_v01 resp;
+	struct ipa_msg_meta msg_meta;
+	int rc;
+
+	move_req = (struct ipa_move_nat_req_msg_v01 *)decoded_msg;
+	IPAWANDBG("Received IPA_MOVE_NAT_REQ_MSG_V01(%s)\n",
+		move_req->nat_move_direction == QMI_IPA_MOVE_NAT_TO_DDR_V01 ?
+	"TO_DDR" : "TO_SRAM");
+
+	memset(&resp, 0, sizeof(resp));
+	resp.resp.result = IPA_QMI_RESULT_SUCCESS_V01;
+
+	req_data = kzalloc(sizeof(struct ipa_move_nat_req_msg_v01),
+		GFP_KERNEL);
+	if (!req_data) {
+		IPAWANERR("allocation failed\n");
+		resp.resp.result = IPA_QMI_RESULT_FAILURE_V01;
+		resp.resp.error = IPA_QMI_ERR_NO_MEMORY_V01;
+		goto send_resp;
+	}
+
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_MOVE_NAT_TABLE;
+	msg_meta.msg_len = sizeof(struct ipa_move_nat_req_msg_v01);
+
+	req_data->nat_move_direction = move_req->nat_move_direction;
+
+	nat_move_qmi_disabled = false;
+	/*
+	 * make sure QMI is enabled before message sent to IPACM.
+	 * real QMI coming from modem takes us out of debug mode and re enables
+	 * the QMI indication send
+	 */
+	wmb();
+
+	rc = ipa_send_msg(&msg_meta, req_data, ipa3_qmi_msg_free_cb);
+	if (rc) {
+		IPAWANERR("ipa_send_msg failed: %d, notify Q6\n", rc);
+		resp.resp.result = IPA_QMI_RESULT_FAILURE_V01;
+	}
+send_resp:
+	IPAWANDBG("qmi_snd_rsp: result %d, err %d\n",
+		resp.resp.result, resp.resp.error);
+
+	rc = qmi_send_response(qmi_handle, sq, txn,
+		QMI_IPA_MOVE_NAT_RESP_V01,
+		IPA_MOVE_NAT_RESP_MSG_V01_MAX_MSG_LEN,
+		ipa_move_nat_resp_msg_v01_ei,
+		&resp);
+
+	if (rc < 0)
+		IPAWANERR("QMI_IPA_MOVE_NAT_RESP_V01 failed\n");
+	else
+		IPAWANDBG(
+			"Finished sending QMI_IPA_MOVE_NAT_RESP_V01, res %d\n"
+		, resp.resp.result);
+}
+
 static void ipa3_a5_svc_disconnect_cb(struct qmi_handle *qmi,
 	unsigned int node, unsigned int port)
 {
@@ -473,6 +548,8 @@ static int ipa3_qmi_send_req_wait(struct qmi_handle *client_handle,
 	struct qmi_txn txn;
 	int ret;
 
+	if (!client_handle)
+		return -EINVAL;
 	ret = qmi_txn_init(client_handle, &txn, resp_desc->ei_array, resp);
 
 	if (ret < 0) {
@@ -620,6 +697,15 @@ static int ipa3_qmi_init_modem_send_sync_msg(void)
 		req.is_ssr_bootup = 1;
 	}
 
+	req.hw_fiter_stats_info_valid = true;
+	req.hw_filter_stats_info.hw_filter_stats_start_addr =
+		IPA_MEM_PART(stats_fnr_ofst);
+	req.hw_filter_stats_info.hw_filter_stats_size = IPA_Q6_FNR_STATS_SIZE;
+	req.hw_filter_stats_info.hw_filter_stats_start_index = IPA_Q6_FNR_START_IDX;
+	req.hw_filter_stats_info.hw_filter_stats_end_index = IPA_Q6_FNR_END_IDX;
+	IPAWANDBG("hw_flt stats: hw_filter_start_address = %u", req.hw_filter_stats_info.hw_filter_stats_start_addr);
+	IPAWANDBG("hw_flt stats: hw_filter_stats_size = %u", req.hw_filter_stats_info.hw_filter_stats_size);
+	IPAWANDBG("hw_flt stats: hw_filter_stats_start_index  = %u", req.hw_filter_stats_info.hw_filter_stats_start_index);
 	IPAWANDBG("platform_type %d\n", req.platform_type);
 	IPAWANDBG("hdr_tbl_info.modem_offset_start %d\n",
 			req.hdr_tbl_info.modem_offset_start);
@@ -785,6 +871,44 @@ int ipa3_qmi_filter_request_send(struct ipa_install_fltr_rule_req_msg_v01 *req)
 		resp.resp.error, "ipa_install_filter");
 }
 
+static int ipa3_qmi_filter_request_ex_calc_length(
+	struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
+{
+	int len = 0;
+
+	/* caller should validate and send the req */
+	/* instead of sending max length,the approximate length is calculated */
+	len += ((sizeof(struct ipa_install_fltr_rule_req_ex_msg_v01)) -
+		(QMI_IPA_MAX_FILTERS_EX_V01 *
+		sizeof(struct ipa_filter_spec_ex_type_v01) -
+		QMI_IPA_MAX_FILTERS_EX_V01 * sizeof(uint32_t)) -
+		(QMI_IPA_MAX_FILTERS_V01 *
+		sizeof(struct ipa_filter_spec_ex2_type_v01)));
+
+	if (req->filter_spec_ex_list_valid &&
+		req->filter_spec_ex_list_len > 0) {
+		len += sizeof(struct ipa_filter_spec_ex_type_v01)*
+			req->filter_spec_ex_list_len;
+	}
+	if (req->xlat_filter_indices_list_valid &&
+		req->xlat_filter_indices_list_len > 0) {
+		len += sizeof(uint32_t)*req->xlat_filter_indices_list_len;
+	}
+
+	if (req->filter_spec_ex2_list_valid &&
+		req->filter_spec_ex2_list_len > 0) {
+		len += sizeof(struct ipa_filter_spec_ex2_type_v01)*
+		req->filter_spec_ex2_list_len;
+	}
+
+	if (req->ul_firewall_indices_list_valid &&
+		req->ul_firewall_indices_list_len > 0) {
+		len += sizeof(uint32_t)*req->ul_firewall_indices_list_len;
+	}
+
+	return len;
+}
+
 /* sending filter-install-request to modem*/
 int ipa3_qmi_filter_request_ex_send(
 	struct ipa_install_fltr_rule_req_ex_msg_v01 *req)
@@ -850,8 +974,9 @@ int ipa3_qmi_filter_request_ex_send(
 	}
 	mutex_unlock(&ipa3_qmi_lock);
 
-	req_desc.max_msg_len =
-		QMI_IPA_INSTALL_FILTER_RULE_EX_REQ_MAX_MSG_LEN_V01;
+	req_desc.max_msg_len = ipa3_qmi_filter_request_ex_calc_length(req);
+	IPAWANDBG("QMI send request length = %d\n", req_desc.max_msg_len);
+
 	req_desc.msg_id = QMI_IPA_INSTALL_FILTER_RULE_EX_REQ_V01;
 	req_desc.ei_array = ipa3_install_fltr_rule_req_ex_msg_data_v01_ei;
 
@@ -1441,12 +1566,56 @@ int ipa3_qmi_filter_notify_send(
 		resp.resp.error, "ipa_fltr_installed_notif_resp");
 }
 
+/*sending nat table move result indication to modem */
+int rmnet_ipa3_notify_nat_move_res(bool failure)
+{
+	int rc;
+	struct ipa_move_nat_table_complt_ind_msg_v01 ind;
+
+	IPAWANDBG("send nat table move indication to modem (%d)\n",
+		failure);
+
+	if (nat_move_qmi_disabled) {
+		IPAWANDBG(
+			"not sending nat table move indication, nat_move_qmi_disabled is true"
+		);
+		return 0;
+	}
+	memset(&ind, 0, sizeof(struct
+		ipa_move_nat_table_complt_ind_msg_v01));
+	if (!failure)
+		ind.nat_table_move_status.result =
+		IPA_QMI_RESULT_SUCCESS_V01;
+	else
+		ind.nat_table_move_status.result =
+		IPA_QMI_RESULT_FAILURE_V01;
+
+	if (unlikely(!ipa3_svc_handle)) {
+		IPAWANERR("Invalid svc handle.Ignore sending ind.\n");
+		return -EFAULT;
+	}
+
+	rc = qmi_send_indication(ipa3_svc_handle,
+		&ipa3_qmi_ctx->client_sq,
+		QMI_IPA_MOVE_NAT_COMPLETE_IND_V01,
+		QMI_IPA_NAT_TABLE_MOVE_COMPLETE_IND_MAX_MSG_LEN_V01,
+		ipa_move_nat_table_complt_ind_msg_v01_ei,
+		&ind);
+	if (rc)
+		IPAWANERR("qmi indication not succesfull %d\n", rc);
+	else
+		IPAWANDBG("qmi indication sent succesfully\n");
+
+	return rc;
+}
+
 static void ipa3_q6_clnt_quota_reached_ind_cb(struct qmi_handle *handle,
 	struct sockaddr_qrtr *sq,
 	struct qmi_txn *txn,
 	const void *data)
 {
 	struct ipa_data_usage_quota_reached_ind_msg_v01 *qmi_ind;
+	bool data_warning = false;
 
 	if (handle != ipa_q6_clnt) {
 		IPAWANERR("Wrong client\n");
@@ -1455,10 +1624,18 @@ static void ipa3_q6_clnt_quota_reached_ind_cb(struct qmi_handle *handle,
 
 	qmi_ind = (struct ipa_data_usage_quota_reached_ind_msg_v01 *) data;
 
-	IPAWANDBG("Quota reached indication on qmux(%d) Mbytes(%lu)\n",
-		qmi_ind->apn.mux_id, (unsigned long) qmi_ind->apn.num_Mbytes);
+#ifdef IPA_DATA_WARNING_QUOTA
+	data_warning = (qmi_ind->is_warning_limit_valid &&
+		qmi_ind->is_warning_limit);
+	if (qmi_ind->is_warning_limit_valid && qmi_ind->is_warning_limit)
+		IPAWANDBG("Warning reached indication on qmux(%d) Mbytes(%lu)\n",
+			qmi_ind->apn.mux_id, (unsigned long) qmi_ind->apn.num_Mbytes);
+	else
+#endif
+		IPAWANDBG("Quota reached indication on qmux(%d) Mbytes(%lu)\n",
+			qmi_ind->apn.mux_id, (unsigned long) qmi_ind->apn.num_Mbytes);
 	ipa3_broadcast_quota_reach_ind(qmi_ind->apn.mux_id,
-		IPA_UPSTEAM_MODEM);
+		IPA_UPSTEAM_MODEM, data_warning);
 }
 
 static void ipa3_q6_clnt_install_firewall_rules_ind_cb(
@@ -1486,6 +1663,42 @@ static void ipa3_q6_clnt_install_firewall_rules_ind_cb(
 	} else {
 		IPAWANERR(": Unexpected Result");
 	}
+}
+
+static void ipa3_q6_clnt_bw_vhang_ind_cb(struct qmi_handle *handle,
+	struct sockaddr_qrtr *sq,
+	struct qmi_txn *txn,
+	const void *data)
+{
+	struct ipa_bw_change_ind_msg_v01 *qmi_ind;
+	uint32_t bw_mbps = 0;
+
+	if (handle != ipa_q6_clnt) {
+		IPAWANERR("Wrong client\n");
+		return;
+	}
+
+	qmi_ind = (struct ipa_bw_change_ind_msg_v01 *) data;
+
+	IPAWANDBG("Q6 BW change UL valid(%d):(%d)Kbps\n",
+		qmi_ind->peak_bw_ul_valid,
+		qmi_ind->peak_bw_ul);
+
+	IPAWANDBG("Q6 BW change DL valid(%d):(%d)Kbps\n",
+		qmi_ind->peak_bw_dl_valid,
+		qmi_ind->peak_bw_dl);
+
+	if (qmi_ind->peak_bw_ul_valid)
+		bw_mbps += qmi_ind->peak_bw_ul/1000;
+
+	if (qmi_ind->peak_bw_dl_valid)
+		bw_mbps += qmi_ind->peak_bw_dl/1000;
+
+	IPAWANDBG("vote modem BW (%u)\n", bw_mbps);
+	if (ipa3_vote_for_bus_bw(&bw_mbps)) {
+		IPAWANERR("Failed to vote BW (%u)\n", bw_mbps);
+	}
+
 }
 
 static void ipa3_q6_clnt_svc_arrive(struct work_struct *work)
@@ -1707,6 +1920,13 @@ static struct qmi_msg_handler server_handlers[] = {
 		.decoded_size = sizeof(struct ipa_mhi_clk_vote_req_msg_v01),
 		.fn = ipa3_handle_mhi_vote_req,
 	},
+	{
+		.type = QMI_REQUEST,
+		.msg_id = QMI_IPA_MOVE_NAT_REQ_V01,
+		.ei = ipa_move_nat_req_msg_v01_ei,
+		.decoded_size = sizeof(struct ipa_move_nat_req_msg_v01),
+		.fn = ipa3_handle_move_nat_req,
+	},
 
 };
 
@@ -1732,6 +1952,13 @@ static struct qmi_msg_handler client_handlers[] = {
 		.decoded_size = sizeof(
 			struct ipa_configure_ul_firewall_rules_ind_msg_v01),
 		.fn = ipa3_q6_clnt_install_firewall_rules_ind_cb,
+	},
+	{
+		.type = QMI_INDICATION,
+		.msg_id = QMI_IPA_BW_CHANGE_INDICATION_V01,
+		.ei = ipa_bw_change_ind_msg_v01_ei,
+		.decoded_size = IPA_BW_CHANGE_IND_MSG_V01_MAX_MSG_LEN,
+		.fn = ipa3_q6_clnt_bw_vhang_ind_cb,
 	},
 };
 
@@ -2099,14 +2326,57 @@ int ipa3_qmi_set_aggr_info(enum ipa_aggr_enum_type_v01 aggr_enum_type)
 		resp.resp.error, "ipa_mhi_prime_aggr_info_req_msg_v01");
 }
 
-int ipa3_qmi_stop_data_qouta(void)
+int ipa3_qmi_req_ind(void)
 {
-	struct ipa_stop_data_usage_quota_req_msg_v01 req;
+	struct ipa_indication_reg_req_msg_v01 req;
+	struct ipa_indication_reg_resp_msg_v01 resp;
+	struct ipa_msg_desc req_desc, resp_desc;
+	int rc;
+
+	memset(&req, 0, sizeof(struct ipa_indication_reg_req_msg_v01));
+	memset(&resp, 0, sizeof(struct ipa_indication_reg_resp_msg_v01));
+
+	req.bw_change_ind_valid = true;
+	req.bw_change_ind = true;
+
+	req_desc.max_msg_len =
+		QMI_IPA_INDICATION_REGISTER_REQ_MAX_MSG_LEN_V01;
+	req_desc.msg_id = QMI_IPA_INDICATION_REGISTER_REQ_V01;
+	req_desc.ei_array = ipa3_indication_reg_req_msg_data_v01_ei;
+
+	resp_desc.max_msg_len =
+		QMI_IPA_INDICATION_REGISTER_RESP_MAX_MSG_LEN_V01;
+	resp_desc.msg_id = QMI_IPA_INDICATION_REGISTER_RESP_V01;
+	resp_desc.ei_array = ipa3_indication_reg_resp_msg_data_v01_ei;
+
+	IPAWANDBG_LOW("Sending QMI_IPA_INDICATION_REGISTER_REQ_V01\n");
+	if (unlikely(!ipa_q6_clnt))
+		return -ETIMEDOUT;
+	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
+		&req_desc, &req,
+		&resp_desc, &resp,
+		QMI_SEND_STATS_REQ_TIMEOUT_MS);
+
+	if (rc < 0) {
+		IPAWANERR("QMI send Req %d failed, rc= %d\n",
+			QMI_IPA_INDICATION_REGISTER_REQ_V01,
+			rc);
+		return rc;
+	}
+
+	IPAWANDBG_LOW("QMI_IPA_INDICATION_REGISTER_RESP_V01 received\n");
+
+	return ipa3_check_qmi_response(rc,
+		QMI_IPA_INDICATION_REGISTER_REQ_V01, resp.resp.result,
+		resp.resp.error, "ipa_indication_reg_req_msg_v01");
+}
+
+int ipa3_qmi_stop_data_quota(struct ipa_stop_data_usage_quota_req_msg_v01 *req)
+{
 	struct ipa_stop_data_usage_quota_resp_msg_v01 resp;
 	struct ipa_msg_desc req_desc, resp_desc;
 	int rc;
 
-	memset(&req, 0, sizeof(struct ipa_stop_data_usage_quota_req_msg_v01));
 	memset(&resp, 0, sizeof(struct ipa_stop_data_usage_quota_resp_msg_v01));
 
 	req_desc.max_msg_len =
@@ -2123,7 +2393,7 @@ int ipa3_qmi_stop_data_qouta(void)
 	if (unlikely(!ipa_q6_clnt))
 		return -ETIMEDOUT;
 	rc = ipa3_qmi_send_req_wait(ipa_q6_clnt,
-		&req_desc, &req,
+		&req_desc, req,
 		&resp_desc, &resp,
 		QMI_SEND_STATS_REQ_TIMEOUT_MS);
 

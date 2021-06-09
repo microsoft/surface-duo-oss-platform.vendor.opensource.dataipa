@@ -1116,6 +1116,7 @@ static int ipa_mpm_connect_mhip_gsi_pipe(enum ipa_client_type mhip_client,
 	gsi_params.chan_params.ring_base_vaddr = NULL;
 	gsi_params.chan_params.use_db_eng = GSI_CHAN_DIRECT_MODE;
 	gsi_params.chan_params.max_prefetch = GSI_ONE_PREFETCH_SEG;
+	gsi_params.chan_params.db_in_bytes = 1;
 	gsi_params.chan_params.low_weight = 1;
 	gsi_params.chan_params.xfer_cb = NULL;
 	gsi_params.chan_params.err_cb = ipa_mpm_gsi_chan_err_cb;
@@ -1530,8 +1531,6 @@ static int ipa_mpm_vote_unvote_pcie_clk(enum ipa_mpm_clk_vote_type vote,
 	if (vote == CLK_ON) {
 		#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 		pm_runtime_get_sync(ipa_mpm_ctx->mhi_parent_dev);
-		result = mhi_device_get_sync(
-			ipa_mpm_ctx->md[probe_id].mhi_dev);
 		#else
 		result = mhi_device_get_sync(
 			ipa_mpm_ctx->md[probe_id].mhi_dev,
@@ -1558,7 +1557,6 @@ static int ipa_mpm_vote_unvote_pcie_clk(enum ipa_mpm_clk_vote_type vote,
 			return 0;
 		}
 		#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
-		mhi_device_put(ipa_mpm_ctx->md[probe_id].mhi_dev);
 		pm_runtime_put(ipa_mpm_ctx->mhi_parent_dev);
 		#else
 		mhi_device_put(ipa_mpm_ctx->md[probe_id].mhi_dev,
