@@ -60,6 +60,8 @@
 #define IPA5_MAX_NUM_PIPES (IPA5_PIPES_NUM)
 #define IPA_SYS_DESC_FIFO_SZ 0x800
 #define IPA_SYS_TX_DATA_DESC_FIFO_SZ 0x1000
+#define IPA_SYS_TX_DATA_DESC_FIFO_SZ_8K 0x2000
+#define IPA_SYS_TPUT_EP_DESC_FIFO_SZ 0x10
 #define IPA_COMMON_EVENT_RING_SIZE 0x7C00
 #define IPA_LAN_RX_HEADER_LENGTH (2)
 #define IPA_QMAP_HEADER_LENGTH (4)
@@ -82,6 +84,9 @@
 #define IPA_Q6_FNR_IDX_CNT (52)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
 #define IPA_Q6_FNR_STATS_SIZE (IPA_Q6_FNR_IDX_CNT * 16)
+#define IPA_MPM_MAX_RING_LEN 64
+#define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
+#define IPA_MPM_MAX_UC_THRESH 4
 
 /* ULSO Constants */
 enum {
@@ -107,13 +112,16 @@ enum {
 
 #define NAPI_WEIGHT 64
 
-#define NAPI_TX_WEIGHT 32
+#define NAPI_TX_WEIGHT 64
 
 #define IPA_WAN_AGGR_PKT_CNT 1
 
 #define IPA_PAGE_POLL_DEFAULT_THRESHOLD 15
 #define IPA_PAGE_POLL_THRESHOLD_MAX 30
 
+
+#define IPA_WDI2_OVER_GSI() (ipa3_ctx->ipa_wdi2_over_gsi \
+		&& (ipa_get_wdi_version() == IPA_WDI_2))
 
 #define IPADBG(fmt, args...) \
 	do { \
@@ -493,6 +501,12 @@ enum {
 #define IPA_IOC_APP_CLOCK_VOTE32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_APP_CLOCK_VOTE, \
 				compat_uptr_t)
+#define IPA_IOC_ADD_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ADD_EoGRE_MAPPING, \
+				compat_uptr_t)
+#define IPA_IOC_DEL_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_DEL_EoGRE_MAPPING, \
+				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
@@ -831,6 +845,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	u32 cookie;
 	enum ipa_hdr_proc_type type;
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
+	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
@@ -1108,6 +1123,7 @@ struct ipa3_page_repl_ctx {
  * @xmit_eot_cnt: count of pending eot for tasklet to process
  * @tasklet: tasklet for eot write_done handle (tx_complete)
  * @napi_tx: napi for eot write done handle (tx_complete) - to replace tasklet
+ * @napi_rx: napi for eot write done handle (rx_complete) - to replace tasklet
  * @in_napi_context: an atomic variable used for non-blocking locking,
  * preventing from multiple napi_sched to be called.
  * @int_modt: GSI event ring interrupt moderation timer
@@ -1151,6 +1167,7 @@ struct ipa3_sys_context {
 	bool skip_eot;
 	u32 eob_drop_cnt;
 	struct napi_struct napi_tx;
+	struct napi_struct napi_rx;
 	bool tx_poll;
 	bool napi_tx_enable;
 	atomic_t in_napi_context;
@@ -1506,6 +1523,8 @@ struct ipa3_stats {
 	u32 wan_rx_empty;
 	u32 wan_rx_empty_coal;
 	u32 wan_repl_rx_empty;
+	u32 rmnet_ll_rx_empty;
+	u32 rmnet_ll_repl_rx_empty;
 	u32 lan_rx_empty;
 	u32 lan_repl_rx_empty;
 	u32 low_lat_rx_empty;
@@ -1514,8 +1533,8 @@ struct ipa3_stats {
 	u32 flow_disable;
 	u32 tx_non_linear;
 	u32 rx_page_drop_cnt;
-	struct ipa3_page_recycle_stats page_recycle_stats[2];
-	u64 page_recycle_cnt[2][IPA_PAGE_POLL_THRESHOLD_MAX];
+	struct ipa3_page_recycle_stats page_recycle_stats[3];
+	u64 page_recycle_cnt[3][IPA_PAGE_POLL_THRESHOLD_MAX];
 };
 
 /* offset for each stats */
@@ -2035,6 +2054,12 @@ struct ipa3_eth_error_stats {
  * @uc_wigig_ctx: WIGIG specific fields for uC interface
  * @ipa_num_pipes: The number of pipes used by IPA HW
  * @skip_uc_pipe_reset: Indicates whether pipe reset via uC needs to be avoided
+ * @mpm_ring_size_dl_cache: To cache the dl ring size configured previously
+ * @mpm_ring_size_dl: MHIP all DL pipe's ring size
+ * @mpm_ring_size_ul_cache: To cache the ul ring size configured previously
+ * @mpm_ring_size_ul: MHIP all UL pipe's ring size
+ * @mpm_teth_aggr_size: MHIP teth aggregation byte size
+ * @mpm_uc_thresh: uc threshold for enabling uc flow control
  * @ipa_client_apps_wan_cons_agg_gro: RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA
  * @apply_rg10_wa: Indicates whether to use register group 10 workaround
  * @gsi_ch20_wa: Indicates whether to apply GSI physical channel 20 workaround
@@ -2061,10 +2086,18 @@ struct ipa3_eth_error_stats {
  * @coal_cmd_pyld: holds the coslescing close frame command payload
  * @ipa_gpi_event_rp_ddr: use DDR to access event RP for GPI channels
  * @rmnet_ctl_enable: enable pipe support fow low latency data
+ * @rmnet_ll_enable: enable pipe support fow low latency data
  * @gsi_fw_file_name: GSI IPA fw file name
  * @uc_fw_file_name: uC IPA fw file name
  * @eth_info: ethernet client mapping
  * @max_num_smmu_cb: number of smmu s1 cb supported
+ * @u64 gsi_msi_addr: MSI SPI set address APSS_GICA_SETSPI_NSR
+ * @u64 gsi_msi_clear_addr: MSI SPI clear address APSS_GICA_CLRSPI_NSR
+ * @u64 gsi_msi_ioremapped_addr: iore mapped address for debugging purpose
+ * @u32 gsi_rmnet_ctl_evt_ring_irq: IRQ number for rmnet_ctl pipe
+ * @u32 gsi_rmnet_ll_evt_ring_irq; IRQ number for rmnet_ll pipe
+ * @u32 gsi_rmnet_ctl_evt_ring_intvec: HW IRQ number for rmnet_ctl pipe
+ * @u32 gsi_rmnet_ll_evt_ring_intvec; HW IRQ number for rmnet_ll pipe
  * @non_hash_flt_lcl_sys_switch: number of times non-hash flt table moved
  */
 struct ipa3_context {
@@ -2184,6 +2217,12 @@ struct ipa3_context {
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
 	bool skip_uc_pipe_reset;
+	int mpm_ring_size_dl;
+	int mpm_ring_size_dl_cache;
+	int mpm_ring_size_ul_cache;
+	int mpm_ring_size_ul;
+	int mpm_teth_aggr_size;
+	int mpm_uc_thresh;
 	unsigned long gsi_dev_hdl;
 	u32 ee;
 	bool apply_rg10_wa;
@@ -2257,6 +2296,7 @@ struct ipa3_context {
 	bool clients_registered;
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
+	bool rmnet_ll_enable;
 	char *gsi_fw_file_name;
 	char *uc_fw_file_name;
 	struct ipa3_eth_info
@@ -2281,6 +2321,17 @@ struct ipa3_context {
 	u8 page_poll_threshold;
 	u32 non_hash_flt_lcl_sys_switch;
 	bool wan_common_page_pool;
+	u64 gsi_msi_addr;
+	u64 gsi_msi_clear_addr;
+	u64 gsi_msi_addr_io_mapped;
+	u64 gsi_msi_clear_addr_io_mapped;
+	u32 gsi_rmnet_ctl_evt_ring_intvec;
+	u32 gsi_rmnet_ctl_evt_ring_irq;
+	u32 gsi_rmnet_ll_evt_ring_intvec;
+	u32 gsi_rmnet_ll_evt_ring_irq;
+	bool use_tput_est_ep;
+	struct ipa_ioc_eogre_info eogre_cache;
+	bool eogre_enabled;
 };
 
 struct ipa3_plat_drv_res {
@@ -2340,6 +2391,7 @@ struct ipa3_plat_drv_res {
 	u32 icc_clk_val[IPA_ICC_LVL_MAX][IPA_ICC_MAX];
 	bool ipa_gpi_event_rp_ddr;
 	bool rmnet_ctl_enable;
+	bool rmnet_ll_enable;
 	bool ipa_use_uc_holb_monitor;
 	u32 ipa_holb_monitor_poll_period;
 	u32 ipa_holb_monitor_max_cnt_wlan;
@@ -2358,6 +2410,13 @@ struct ipa3_plat_drv_res {
 	u16 ulso_ip_id_min;
 	u16 ulso_ip_id_max;
 	bool use_pm_wrapper;
+	u64 gsi_msi_addr;
+	u64 gsi_msi_clear_addr;
+	u32 gsi_rmnet_ctl_evt_ring_intvec;
+	u32 gsi_rmnet_ctl_evt_ring_irq;
+	u32 gsi_rmnet_ll_evt_ring_intvec;
+	u32 gsi_rmnet_ll_evt_ring_irq;
+	bool use_tput_est_ep;
 };
 
 /**
@@ -2696,7 +2755,11 @@ int ipa3_del_hdr_by_user(struct ipa_ioc_del_hdr *hdls, bool by_user);
 
 int ipa3_commit_hdr(void);
 
-int ipa3_get_hdr(struct ipa_ioc_get_hdr *lookup);
+int ipa3_get_hdr_offset(char* name, u32* offset);
+
+int ipa3_get_hdr_proc_ctx_hdl(struct ipa_ioc_get_hdr *lookup);
+
+int ipa3_get_hdr_proc_ctx_offset(char* name, u32* offset);
 
 int ipa3_put_hdr(u32 hdr_hdl);
 
@@ -2822,6 +2885,8 @@ void ipa3_free_skb(struct ipa_rx_data *data);
 /*
  * System pipes
  */
+int ipa3_setup_tput_pipe(void);
+
 int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl);
 
 int ipa3_teardown_sys_pipe(u32 clnt_hdl);
@@ -2939,6 +3004,7 @@ int ipa3_add_interrupt_handler(enum ipa_irq_type interrupt,
  * Miscellaneous
  */
 int ipa3_get_ep_mapping(enum ipa_client_type client);
+int ipa3_get_ep_mapping_from_gsi(int ch_id);
 
 bool ipa3_is_ready(void);
 
@@ -3031,6 +3097,8 @@ int ipa3_inc_client_enable_clks_no_block(struct ipa_active_client_logging_info
 		*id);
 void ipa3_dec_client_disable_clks_no_block(
 	struct ipa_active_client_logging_info *id);
+void ipa3_dec_client_disable_clks_delay_wq(
+		struct ipa_active_client_logging_info *id, unsigned long delay);
 void ipa3_active_clients_log_dec(struct ipa_active_client_logging_info *id,
 		bool int_ctx);
 void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
@@ -3109,6 +3177,7 @@ int ipa3_tag_aggr_force_close(int pipe_num);
 
 void ipa3_active_clients_unlock(void);
 int ipa3_wdi_init(void);
+int ipa_get_wdi_version(void);
 int ipa3_write_qmapid_gsi_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id);
@@ -3277,6 +3346,24 @@ int ipa3_setup_apps_low_lat_prod_pipe(bool rmnet_config,
 int ipa3_setup_apps_low_lat_cons_pipe(bool rmnet_config,
 	struct rmnet_ingress_param *ingress_param);
 int ipa3_teardown_apps_low_lat_pipes(void);
+int ipa3_rmnet_ll_init(void);
+int ipa3_register_rmnet_ll_cb(
+	void (*ipa_rmnet_ll_ready_cb)(void *user_data1),
+	void *user_data1,
+	void (*ipa_rmnet_ll_stop_cb)(void *user_data2),
+	void *user_data2,
+	void (*ipa_rmnet_ll_rx_notify_cb)(
+	void *user_data3, void *rx_data),
+	void *user_data3);
+int ipa3_unregister_rmnet_ll_cb(void);
+int ipa3_rmnet_ll_xmit(struct sk_buff *skb);
+int ipa3_setup_apps_low_lat_data_prod_pipe(
+	struct rmnet_egress_param *egress_param,
+	struct net_device *dev);
+int ipa3_setup_apps_low_lat_data_cons_pipe(
+	struct rmnet_ingress_param *ingress_param,
+	struct net_device *dev);
+int ipa3_teardown_apps_low_lat_data_pipes(void);
 const char *ipa_hw_error_str(enum ipa3_hw_errors err_type);
 int ipa_gsi_ch20_wa(void);
 int ipa3_lan_rx_poll(u32 clnt_hdl, int weight);
@@ -3288,6 +3375,7 @@ void ipa3_reset_freeze_vote(void);
 int ipa3_ntn_init(void);
 int ipa3_get_ntn_stats(struct Ipa3HwStatsNTNInfoData_t *stats);
 struct dentry *ipa_debugfs_get_root(void);
+bool ipa3_is_msm_device(void);
 void ipa3_enable_dcd(void);
 void ipa3_disable_prefetch(enum ipa_client_type client);
 int ipa3_alloc_common_event_ring(void);
@@ -3308,6 +3396,7 @@ irq_handler_t ipa3_get_isr(void);
 void ipa_pc_qmp_enable(void);
 u32 ipa3_get_r_rev_version(void);
 void ipa3_notify_clients_registered(void);
+void ipa_gsi_map_unmap_gsi_msi_addr(bool map);
 #if defined(CONFIG_IPA3_REGDUMP)
 int ipa_reg_save_init(u32 value);
 void ipa_save_registers(void);
@@ -3424,8 +3513,33 @@ int ipa3_uc_send_update_flow_control(uint32_t bitmask,
 	uint8_t  add_delete);
 
 enum ipa_hw_type ipa_get_hw_type_internal(void);
+bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip);
 /* check if modem is up */
 bool ipa3_is_modem_up(void);
 /* set modem is up */
 void ipa3_set_modem_up(bool is_up);
+int ipa3_qmi_reg_dereg_for_bw(bool bw_reg_dereg);
+
+/*
+ * To check if the eogre is worthy of sending to recipients who would
+ * use the data.
+ */
+int ipa3_check_eogre(
+	struct ipa_ioc_eogre_info *eogre_info,
+	bool                      *send2uC,
+	bool                      *send2ipacm );
+
+/*
+ * To send map information to uC
+ */
+int ipa3_add_dscp_vlan_pcp_map(
+	struct IpaDscpVlanPcpMap_t *map );
+
+/*
+ * To send enable/disable information to ipacm
+ */
+int ipa3_send_eogre_info(
+	enum ipa_eogre_event etype,
+	struct ipa_ioc_eogre_info *info );
+
 #endif /* _IPA3_I_H_ */

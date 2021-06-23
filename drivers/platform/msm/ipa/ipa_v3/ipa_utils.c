@@ -700,11 +700,11 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
 	},
 	[IPA_5_0_MHI] = {
-		/* UL  DL  unused  unused unused  UC_RX_Q DRBIP N/A */
+		/* UL DL IPADMA QDSS unused unused CV2X */
 		[IPA_v5_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
 		{6, 6}, {5, 5}, {2, 2}, {2, 2}, {0, 0}, {0, 0}, {30, 39},  },
 		[IPA_v5_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
-		{0, 3}, {0, 3}, {1, 2}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
+		{0, 3}, {0, 3}, {1, 2}, {1, 1}, {0, 0}, {0, 0}, {0, 0},  },
 	},
 
 	[IPA_5_1] = {
@@ -2640,7 +2640,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 31, 31, 8, 8, IPA_EE_AP }, IPA_TX_INSTANCE_NA },
-
+	[IPA_4_5][IPA_CLIENT_TPUT_CONS]          = {
+			true, IPA_v4_5_GROUP_UL_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 25, 16, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 4 } },
 	/* IPA_4_5_MHI */
 	[IPA_4_5_MHI][IPA_CLIENT_APPS_CMD_PROD]		= {
 			true, IPA_v4_5_MHI_GROUP_DDR,
@@ -2809,6 +2814,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 9, 12, 8, 16, IPA_EE_AP, GSI_FREE_PRE_FETCH, 2 } },
+	[IPA_4_5_AUTO][IPA_CLIENT_WLAN1_PROD]          = {
+			false, IPA_v4_5_GROUP_UL_DL,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 9, 12, 8, 16, IPA_EE_AP, GSI_FREE_PRE_FETCH, 2 } },
 	[IPA_4_5_AUTO][IPA_CLIENT_USB_PROD]            = {
 			true, IPA_v4_5_GROUP_UL_DL,
 			true,
@@ -2908,6 +2919,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 11, 14, 8, 16, IPA_EE_AP } },
 
 	[IPA_4_5_AUTO][IPA_CLIENT_WLAN2_CONS]          = {
+			false, IPA_v4_5_GROUP_UL_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 24, 18, 8, 14, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3 } },
+	[IPA_4_5_AUTO][IPA_CLIENT_WLAN1_CONS]          = {
 			false, IPA_v4_5_GROUP_UL_DL,
 			false,
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
@@ -4319,6 +4336,13 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 18, 4, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 },
 			IPA_TX_INSTANCE_UL },
+	[IPA_5_0][IPA_CLIENT_TPUT_CONS] = {
+			true, IPA_v5_0_GROUP_UL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 33, 6, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3},
+			IPA_TX_INSTANCE_DL },
 
 	/* IPA_5_0_MHI */
 	[IPA_5_0_MHI][IPA_CLIENT_USB_PROD] = {
@@ -4597,6 +4621,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			{ 4, 9, 16, 24, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
 			IPA_TX_INSTANCE_NA },
 
+	[IPA_5_1][IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD] = {
+			true, IPA_v5_0_GROUP_URLLC,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_NO_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 10, 5, 10, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_NA },
+
 	[IPA_5_1][IPA_CLIENT_Q6_WAN_PROD]         = {
 			true, IPA_v5_0_GROUP_DL,
 			true,
@@ -4620,6 +4652,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			QMB_MASTER_SELECT_DDR,
 			{ 15, 2, 28, 32, IPA_EE_Q6, GSI_FREE_PRE_FETCH, 3 },
 			IPA_TX_INSTANCE_NA },
+
+	[IPA_5_1][IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD] = {
+			true, IPA_v5_0_GROUP_URLLC,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{ 5, 8, 28, 32, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 3 },
+			IPA_TX_INSTANCE_UL },
 
 	[IPA_5_1][IPA_CLIENT_APPS_LAN_CONS] = {
 			true, IPA_v5_0_GROUP_UL,
@@ -4723,6 +4763,14 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 32, 10, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
+			IPA_TX_INSTANCE_DL },
+
+	[IPA_5_1][IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS] = {
+			true, IPA_v5_0_GROUP_DL,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{ 33, 6, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3	},
 			IPA_TX_INSTANCE_DL },
 
 	[IPA_5_1][IPA_CLIENT_Q6_LAN_CONS]         = {
@@ -5887,16 +5935,16 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_APPS_WAN_COAL_CONS),
 	__stringify(IPA_CLIENT_MHI_PRIME_TETH_PROD),
 	__stringify(IPA_CLIENT_MHI_PRIME_TETH_CONS),
-        __stringify(IPA_CLIENT_MHI_PRIME_RMNET_PROD),
-        __stringify(IPA_CLIENT_MHI_PRIME_RMNET_CONS),
+	__stringify(IPA_CLIENT_MHI_PRIME_RMNET_PROD),
+	__stringify(IPA_CLIENT_MHI_PRIME_RMNET_CONS),
 	__stringify(IPA_CLIENT_MHI_PRIME_DPL_PROD),
 	__stringify(RESERVERD_CONS_101),
 	__stringify(IPA_CLIENT_AQC_ETHERNET_PROD),
 	__stringify(IPA_CLIENT_AQC_ETHERNET_CONS),
 	__stringify(IPA_CLIENT_APPS_WAN_LOW_LAT_PROD),
 	__stringify(IPA_CLIENT_APPS_WAN_LOW_LAT_CONS),
-        __stringify(IPA_CLIENT_QDSS_PROD),
-        __stringify(IPA_CLIENT_MHI_QDSS_CONS),
+	__stringify(IPA_CLIENT_QDSS_PROD),
+	__stringify(IPA_CLIENT_MHI_QDSS_CONS),
 	__stringify(IPA_CLIENT_RTK_ETHERNET_PROD),
 	__stringify(IPA_CLIENT_RTK_ETHERNET_CONS),
 	__stringify(IPA_CLIENT_MHI_LOW_LAT_PROD),
@@ -5909,6 +5957,12 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_ETHERNET2_CONS),
 	__stringify(RESERVERD_PROD_118),
 	__stringify(IPA_CLIENT_WLAN2_CONS1),
+	__stringify(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD),
+	__stringify(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS),
+	__stringify(IPA_CLIENT_Q6_DL_NLO_LL_DATA_PROD),
+	__stringify(RESERVERD_CONS_123),
+	__stringify(RESERVERD_PROD_124),
+	__stringify(IPA_CLIENT_TPUT_CONS),
 };
 EXPORT_SYMBOL(ipa_clients_strings);
 
@@ -6848,6 +6902,37 @@ int ipa3_get_ep_mapping(enum ipa_client_type client)
 }
 
 /**
+ * ipa3_get_ep_mapping_from_gsi() - provide endpoint mapping
+ * @ch_id: GSI Virt CH id
+ *
+ * Return value: endpoint mapping
+ */
+int ipa3_get_ep_mapping_from_gsi(int ch_id)
+{
+	int ipa_ep_idx = IPA_EP_NOT_ALLOCATED;
+	u8 hw_idx;
+	int i = 0;
+
+	hw_idx = ipa3_ctx->hw_type_index;
+
+	if (ch_id >= GSI_CHAN_MAX || ch_id < 0) {
+		IPAERR_RL("Bad ch_id number! ch_id =%d\n", ch_id);
+		return IPA_EP_NOT_ALLOCATED;
+	}
+
+	for (i = 0; i < IPA_CLIENT_MAX; i++) {
+		if (ipa3_ep_mapping[hw_idx][i].valid &&
+			ipa3_ep_mapping[hw_idx][i].ipa_gsi_ep_info.ipa_gsi_chan_num
+			== ch_id) {
+			ipa_ep_idx = ipa3_ep_mapping[hw_idx][i].ipa_gsi_ep_info.ipa_ep_num;
+			break;
+		}
+	}
+
+	return ipa_ep_idx;
+}
+
+/**
  * ipa3_get_gsi_ep_info() - provide gsi ep information
  * @client: IPA client value
  *
@@ -7091,7 +7176,7 @@ enum ipa_client_type ipa3_get_client_by_pipe(int pipe_idx)
 
 	if (j == IPA_CLIENT_MAX)
 		IPADBG("Got to IPA_CLIENT_MAX (%d) while searching for (%d)\n",
-		       j, pipe_idx);
+			j, pipe_idx);
 
 	return j;
 }
@@ -7655,8 +7740,7 @@ int ipa3_cfg_ep_hdr_ext(u32 clnt_hdl,
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_cfg_ep_ulso(u32 clnt_hdl,
-		       const struct ipa_ep_cfg_ulso *ep_ulso)
+int ipa3_cfg_ep_ulso(u32 clnt_hdl, const struct ipa_ep_cfg_ulso *ep_ulso)
 {
 	struct ipa3_ep_context *ep;
 
@@ -7738,7 +7822,7 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		else
 			primary_secondry = false;
 
-		result = gsi_flow_control_ee(ep->gsi_chan_hdl, 0,
+		result = gsi_flow_control_ee(ep->gsi_chan_hdl, clnt_hdl, 0,
 				ep_ctrl->ipa_ep_delay, primary_secondry, &code);
 		if (result == GSI_STATUS_SUCCESS) {
 			IPADBG("flow control sussess gsi ch %d with code %d\n",
@@ -8394,6 +8478,16 @@ int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md)
 	/* copy over EP cfg */
 	ipa3_ctx->ep[clnt_hdl].cfg.meta = *ep_md;
 
+	if (ipa3_ctx->eogre_enabled &&
+		ipa3_ctx->ep[clnt_hdl].client == IPA_CLIENT_ETHERNET_PROD) {
+		/* reconfigure ep metadata reg to override mux-id */
+		ipa3_ctx->ep[clnt_hdl].cfg.hdr.hdr_ofst_metadata_valid = 0;
+		ipa3_ctx->ep[clnt_hdl].cfg.hdr.hdr_ofst_metadata = 0;
+		ipa3_ctx->ep[clnt_hdl].cfg.hdr.hdr_metadata_reg_valid = 1;
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_n, clnt_hdl,
+			&ipa3_ctx->ep[clnt_hdl].cfg.hdr);
+	}
+
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	ep_md_reg_wrt = *ep_md;
@@ -9000,7 +9094,7 @@ int ipa3_init_mem_partition(enum ipa_hw_type type)
 int ipa3_controller_static_bind(struct ipa3_controller *ctrl,
 		enum ipa_hw_type hw_type, u32 ipa_cfg_offset)
 {
-	if (hw_type >= IPA_HW_v5_1) {
+	if (hw_type >= IPA_HW_v5_0) {
 		ctrl->ipa_clk_rate_turbo = IPA_V5_0_CLK_RATE_TURBO;
 		ctrl->ipa_clk_rate_nominal = IPA_V5_0_CLK_RATE_NOMINAL;
 		ctrl->ipa_clk_rate_svs = IPA_V5_0_CLK_RATE_SVS;
@@ -10908,6 +11002,11 @@ int ipa3_suspend_apps_pipes(bool suspend)
 	if (res == -EAGAIN)
 		goto undo_qmap_cons;
 
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS,
+		suspend);
+	if (res == -EAGAIN)
+		goto undo_low_lat_data_cons;
+
 	if (suspend) {
 		struct ipahal_reg_tx_wrapper tx;
 		int ep_idx;
@@ -10922,7 +11021,7 @@ int ipa3_suspend_apps_pipes(bool suspend)
 			IPADBG("COAL frame is open 0x%x\n",
 				tx.coal_slave_open_frame);
 			res = -EAGAIN;
-			goto undo_qmap_cons;
+			goto undo_low_lat_data_cons;
 		}
 
 		usleep_range(IPA_TAG_SLEEP_MIN_USEC, IPA_TAG_SLEEP_MAX_USEC);
@@ -10935,7 +11034,7 @@ int ipa3_suspend_apps_pipes(bool suspend)
 				if (res) {
 					IPADBG("suspend irq is pending 0x%x\n",
 						res);
-					goto undo_qmap_cons;
+					goto undo_low_lat_data_cons;
 				}
 			}
 		} else {
@@ -10955,6 +11054,10 @@ do_prod:
 		suspend);
 	if (res == -EAGAIN)
 		goto undo_qmap_prod;
+	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD,
+		suspend);
+	if (res == -EAGAIN)
+		goto undo_low_lat_data_prod;
 	res = _ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_PROD, suspend);
 	if (res == -EAGAIN)
 		goto undo_wan_prod;
@@ -10962,11 +11065,17 @@ do_prod:
 
 undo_wan_prod:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_PROD, !suspend);
+undo_low_lat_data_prod:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_PROD,
+		!suspend);
 undo_qmap_prod:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_PROD,
 		!suspend);
 undo_lan_prod:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_LAN_PROD, !suspend);
+undo_low_lat_data_cons:
+	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_DATA_CONS,
+		!suspend);
 undo_qmap_cons:
 	_ipa_suspend_resume_pipe(IPA_CLIENT_APPS_WAN_LOW_LAT_CONS,
 		!suspend);
@@ -11595,6 +11704,39 @@ int emulator_load_fws(
 }
 
 /**
+ * ipa3_is_msm_device() - Is the running device a MSM or MDM
+ * Determine according to IPA version
+ *
+ * Return value: true if MSM, false if MDM
+ *
+ */
+bool ipa3_is_msm_device(void)
+{
+	switch (ipa3_ctx->ipa_hw_type){
+	case IPA_HW_v3_0:
+	case IPA_HW_v3_5:
+	case IPA_HW_v4_0:
+	case IPA_HW_v4_5:
+	case IPA_HW_v5_0:
+		return false;
+	case IPA_HW_v3_1:
+	case IPA_HW_v3_5_1:
+	case IPA_HW_v4_1:
+	case IPA_HW_v4_2:
+	case IPA_HW_v4_7:
+	case IPA_HW_v4_9:
+	case IPA_HW_v4_11:
+	case IPA_HW_v5_1:
+		return true;
+	default:
+		IPAERR("unknown HW type %d\n", ipa3_ctx->ipa_hw_type);
+		ipa_assert();
+	}
+
+	return false;
+}
+
+/**
  * ipa3_is_apq() - indicate apq platform or not
  *
  * Return value: true if apq, false if not apq platform
@@ -12021,4 +12163,161 @@ bool ipa3_is_ulso_supported(void)
 		return false;
 
 	return ipa3_ctx->ulso_supported;
+}
+EXPORT_SYMBOL(ipa3_is_ulso_supported);
+
+static void ipa3_eogre_info_free_cb(
+	void *buff,
+	u32   len,
+	u32   type)
+{
+	if (buff) {
+		kfree(buff);
+	}
+}
+
+/**
+ * ipa3_check_eogre() - Check if the eogre is worthy of sending to
+ *                      recipients who would use the data.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_check_eogre(
+	struct ipa_ioc_eogre_info *eogre_info,
+	bool                      *send2uC,
+	bool                      *send2ipacm )
+{
+	struct ipa_ioc_eogre_info null_eogre;
+
+	bool cache_is_null, eogre_is_null, same;
+
+	int ret = 0;
+
+	if (eogre_info == NULL || send2uC == NULL || send2ipacm == NULL) {
+		IPAERR("NULL ptr: eogre_info(%p) and/or "
+			   "send2uC(%p) and/or send2ipacm(%p)\n",
+			   eogre_info, send2uC, send2ipacm);
+		ret = -EIO;
+		goto done;
+	}
+
+	memset(&null_eogre, 0, sizeof(null_eogre));
+
+	cache_is_null =
+		!memcmp(
+			&ipa3_ctx->eogre_cache,
+			&null_eogre,
+			sizeof(null_eogre));
+
+	eogre_is_null =
+		!memcmp(
+			eogre_info,
+			&null_eogre,
+			sizeof(null_eogre));
+
+	*send2uC = *send2ipacm = false;
+
+	if (cache_is_null) {
+
+		if (eogre_is_null) {
+			IPAERR(
+				"Attempting to disable EoGRE. EoGRE is "
+				"already disabled. No work needs to be done.\n");
+			ret = -EIO;
+			goto done;
+		}
+
+		*send2uC = *send2ipacm = true;
+
+	} else { /* (!cache_is_null) */
+
+		if (!eogre_is_null) {
+			IPAERR(
+				"EoGRE is already enabled for iptype(%d). "
+				"No work needs to be done.\n",
+				ipa3_ctx->eogre_cache.ipgre_info.iptype);
+			ret = -EIO;
+			goto done;
+		}
+
+		same = !memcmp(
+			&ipa3_ctx->eogre_cache.map_info,
+			&eogre_info->map_info,
+			sizeof(struct IpaDscpVlanPcpMap_t));
+
+		*send2uC = !same;
+
+		same = !memcmp(
+			&ipa3_ctx->eogre_cache.ipgre_info,
+			&eogre_info->ipgre_info,
+			sizeof(struct ipa_ipgre_info));
+
+		*send2ipacm = !same;
+	}
+
+	ipa3_ctx->eogre_cache = *eogre_info;
+
+	IPADBG("send2uC(%u) send2ipacm(%u)\n",
+		   *send2uC, *send2ipacm);
+
+done:
+	return ret;
+}
+
+/**
+ * ipa3_send_eogre_info() - Notify ipacm of incoming eogre event
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note: Should not be called from atomic context
+ */
+int ipa3_send_eogre_info(
+	enum ipa_eogre_event       etype,
+	struct ipa_ioc_eogre_info *info )
+{
+	struct ipa_msg_meta    msg_meta;
+	struct ipa_ipgre_info *eogre_info;
+
+	int                    res = 0;
+
+	if (!info) {
+		IPAERR("Bad arg: info is NULL\n");
+		res = -EIO;
+		goto done;
+	}
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+
+	eogre_info = kzalloc(
+		sizeof(struct ipa_ipgre_info), GFP_KERNEL);
+
+	if (!eogre_info) {
+		IPAERR("eogre_info memory allocation failed !\n");
+		res = -ENOMEM;
+		goto done;
+	}
+
+	memcpy(eogre_info,
+		   &(info->ipgre_info),
+		   sizeof(struct ipa_ipgre_info));
+
+	msg_meta.msg_type = etype;
+	msg_meta.msg_len  = sizeof(struct ipa_ipgre_info);
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_eogre_info_free_cb);
+
+	if (res) {
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		kfree(eogre_info);
+		goto done;
+	}
+
+done:
+	return res;
 }
