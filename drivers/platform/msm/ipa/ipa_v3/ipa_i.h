@@ -84,6 +84,9 @@
 #define IPA_Q6_FNR_IDX_CNT (52)
 #define IPA_Q6_FNR_END_IDX (IPA_Q6_FNR_START_IDX+IPA_Q6_FNR_IDX_CNT-1)
 #define IPA_Q6_FNR_STATS_SIZE (IPA_Q6_FNR_IDX_CNT * 16)
+#define IPA_MPM_MAX_RING_LEN 64
+#define IPA_MAX_TETH_AGGR_BYTE_LIMIT 24
+#define IPA_MPM_MAX_UC_THRESH 4
 
 /* ULSO Constants */
 enum {
@@ -498,6 +501,12 @@ enum {
 #define IPA_IOC_APP_CLOCK_VOTE32 _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_APP_CLOCK_VOTE, \
 				compat_uptr_t)
+#define IPA_IOC_ADD_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ADD_EoGRE_MAPPING, \
+				compat_uptr_t)
+#define IPA_IOC_DEL_EoGRE_MAPPING32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_DEL_EoGRE_MAPPING, \
+				compat_uptr_t)
 #endif /* #ifdef CONFIG_COMPAT */
 
 #define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
@@ -836,6 +845,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	u32 cookie;
 	enum ipa_hdr_proc_type type;
 	struct ipa_l2tp_hdr_proc_ctx_params l2tp_params;
+	struct ipa_eogre_hdr_proc_ctx_params eogre_params;
 	struct ipa_eth_II_to_eth_II_ex_procparams generic_params;
 	struct ipa3_hdr_proc_ctx_offset_entry *offset_entry;
 	struct ipa3_hdr_entry *hdr;
@@ -2044,6 +2054,12 @@ struct ipa3_eth_error_stats {
  * @uc_wigig_ctx: WIGIG specific fields for uC interface
  * @ipa_num_pipes: The number of pipes used by IPA HW
  * @skip_uc_pipe_reset: Indicates whether pipe reset via uC needs to be avoided
+ * @mpm_ring_size_dl_cache: To cache the dl ring size configured previously
+ * @mpm_ring_size_dl: MHIP all DL pipe's ring size
+ * @mpm_ring_size_ul_cache: To cache the ul ring size configured previously
+ * @mpm_ring_size_ul: MHIP all UL pipe's ring size
+ * @mpm_teth_aggr_size: MHIP teth aggregation byte size
+ * @mpm_uc_thresh: uc threshold for enabling uc flow control
  * @ipa_client_apps_wan_cons_agg_gro: RMNET_IOCTL_INGRESS_FORMAT_AGG_DATA
  * @apply_rg10_wa: Indicates whether to use register group 10 workaround
  * @gsi_ch20_wa: Indicates whether to apply GSI physical channel 20 workaround
@@ -2201,6 +2217,12 @@ struct ipa3_context {
 	u32 wan_rx_ring_size;
 	u32 lan_rx_ring_size;
 	bool skip_uc_pipe_reset;
+	int mpm_ring_size_dl;
+	int mpm_ring_size_dl_cache;
+	int mpm_ring_size_ul_cache;
+	int mpm_ring_size_ul;
+	int mpm_teth_aggr_size;
+	int mpm_uc_thresh;
 	unsigned long gsi_dev_hdl;
 	u32 ee;
 	bool apply_rg10_wa;
@@ -2308,6 +2330,8 @@ struct ipa3_context {
 	u32 gsi_rmnet_ll_evt_ring_intvec;
 	u32 gsi_rmnet_ll_evt_ring_irq;
 	bool use_tput_est_ep;
+	struct ipa_ioc_eogre_info eogre_cache;
+	bool eogre_enabled;
 };
 
 struct ipa3_plat_drv_res {
@@ -3073,6 +3097,8 @@ int ipa3_inc_client_enable_clks_no_block(struct ipa_active_client_logging_info
 		*id);
 void ipa3_dec_client_disable_clks_no_block(
 	struct ipa_active_client_logging_info *id);
+void ipa3_dec_client_disable_clks_delay_wq(
+		struct ipa_active_client_logging_info *id, unsigned long delay);
 void ipa3_active_clients_log_dec(struct ipa_active_client_logging_info *id,
 		bool int_ctx);
 void ipa3_active_clients_log_inc(struct ipa_active_client_logging_info *id,
@@ -3492,4 +3518,28 @@ bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip);
 bool ipa3_is_modem_up(void);
 /* set modem is up */
 void ipa3_set_modem_up(bool is_up);
+int ipa3_qmi_reg_dereg_for_bw(bool bw_reg_dereg);
+
+/*
+ * To check if the eogre is worthy of sending to recipients who would
+ * use the data.
+ */
+int ipa3_check_eogre(
+	struct ipa_ioc_eogre_info *eogre_info,
+	bool                      *send2uC,
+	bool                      *send2ipacm );
+
+/*
+ * To send map information to uC
+ */
+int ipa3_add_dscp_vlan_pcp_map(
+	struct IpaDscpVlanPcpMap_t *map );
+
+/*
+ * To send enable/disable information to ipacm
+ */
+int ipa3_send_eogre_info(
+	enum ipa_eogre_event etype,
+	struct ipa_ioc_eogre_info *info );
+
 #endif /* _IPA3_I_H_ */

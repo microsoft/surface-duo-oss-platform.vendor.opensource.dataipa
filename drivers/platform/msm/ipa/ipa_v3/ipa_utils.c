@@ -700,11 +700,11 @@ static const struct rsrc_min_max ipa3_rsrc_dst_grp_config
 		{0, 0x3f}, {0, 0x3f}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
 	},
 	[IPA_5_0_MHI] = {
-		/* UL  DL  unused  unused unused  UC_RX_Q DRBIP N/A */
+		/* UL DL IPADMA QDSS unused unused CV2X */
 		[IPA_v5_0_RSRC_GRP_TYPE_DST_DATA_SECTORS] = {
 		{6, 6}, {5, 5}, {2, 2}, {2, 2}, {0, 0}, {0, 0}, {30, 39},  },
 		[IPA_v5_0_RSRC_GRP_TYPE_DST_DPS_DMARS] = {
-		{0, 3}, {0, 3}, {1, 2}, {0, 0}, {0, 0}, {0, 0}, {0, 0},  },
+		{0, 3}, {0, 3}, {1, 2}, {1, 1}, {0, 0}, {0, 0}, {0, 0},  },
 	},
 
 	[IPA_5_1] = {
@@ -3097,6 +3097,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_DEC_UCP,
 			QMB_MASTER_SELECT_DDR,
 			{ 5, 0, 16, 28, IPA_EE_Q6, GSI_SMART_PRE_FETCH, 2 } },
+	[IPA_4_5_AUTO_MHI][IPA_CLIENT_USB_PROD]			= {
+			true, IPA_v4_5_MHI_GROUP_DDR,
+			true,
+			IPA_DPS_HPS_SEQ_TYPE_2ND_PKT_PROCESS_PASS_DEC_UCP,
+			QMB_MASTER_SELECT_DDR,
+			{0, 11, 8, 16, IPA_EE_AP, GSI_SMART_PRE_FETCH, 3} },
 	[IPA_4_5_AUTO_MHI][IPA_CLIENT_Q6_CMD_PROD]		= {
 			true, IPA_v4_5_MHI_GROUP_PCIE,
 			false,
@@ -3189,6 +3195,12 @@ static const struct ipa_ep_configuration ipa3_ep_mapping
 			IPA_DPS_HPS_SEQ_TYPE_INVALID,
 			QMB_MASTER_SELECT_DDR,
 			{ 21, 7, 9, 9, IPA_EE_Q6, GSI_ESCAPE_BUF_ONLY, 0 } },
+	[IPA_4_5_AUTO_MHI][IPA_CLIENT_USB_CONS]			= {
+			true, IPA_v4_5_MHI_GROUP_DDR,
+			false,
+			IPA_DPS_HPS_SEQ_TYPE_INVALID,
+			QMB_MASTER_SELECT_DDR,
+			{13, 4, 9, 9, IPA_EE_AP, GSI_SMART_PRE_FETCH, 4} },
 	[IPA_4_5_AUTO_MHI][IPA_CLIENT_Q6_UL_NLO_DATA_CONS]	= {
 			true, IPA_v4_5_MHI_GROUP_DDR,
 			false,
@@ -8478,6 +8490,16 @@ int ipa3_cfg_ep_metadata(u32 clnt_hdl, const struct ipa_ep_cfg_metadata *ep_md)
 	/* copy over EP cfg */
 	ipa3_ctx->ep[clnt_hdl].cfg.meta = *ep_md;
 
+	if (ipa3_ctx->eogre_enabled &&
+		ipa3_ctx->ep[clnt_hdl].client == IPA_CLIENT_ETHERNET_PROD) {
+		/* reconfigure ep metadata reg to override mux-id */
+		ipa3_ctx->ep[clnt_hdl].cfg.hdr.hdr_ofst_metadata_valid = 0;
+		ipa3_ctx->ep[clnt_hdl].cfg.hdr.hdr_ofst_metadata = 0;
+		ipa3_ctx->ep[clnt_hdl].cfg.hdr.hdr_metadata_reg_valid = 1;
+		ipahal_write_reg_n_fields(IPA_ENDP_INIT_HDR_n, clnt_hdl,
+			&ipa3_ctx->ep[clnt_hdl].cfg.hdr);
+	}
+
 	IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	ep_md_reg_wrt = *ep_md;
@@ -12155,3 +12177,231 @@ bool ipa3_is_ulso_supported(void)
 	return ipa3_ctx->ulso_supported;
 }
 EXPORT_SYMBOL(ipa3_is_ulso_supported);
+
+
+
+/**
+ * ipa_hdrs_hpc_destroy() - remove the IPA headers hpc
+ * configuration done for the driver data path.
+ *  @hdr_hdl: the hpc handle
+ *
+ *  Remove the header addition hpc associated with hdr_hdl.
+ *
+ *  Return value: 0 on success, kernel error code otherwise
+ */
+int ipa_hdrs_hpc_destroy(u32 hdr_hdl)
+{
+	struct ipa_ioc_del_hdr *del_wrapper;
+	struct ipa_hdr_del *hdr_del;
+	int result;
+
+	del_wrapper = kzalloc(sizeof(*del_wrapper) + sizeof(*hdr_del), GFP_KERNEL);
+	if (!del_wrapper)
+		return -ENOMEM;
+
+	del_wrapper->commit = 1;
+	del_wrapper->num_hdls = 1;
+	hdr_del = &del_wrapper->hdl[0];
+	hdr_del->hdl = hdr_hdl;
+
+	result = ipa3_del_hdr(del_wrapper);
+	if (result || hdr_del->status)
+		IPAERR("ipa3_del_hdr failed\n");
+	kfree(del_wrapper);
+
+    return result;
+}
+EXPORT_SYMBOL(ipa_hdrs_hpc_destroy);
+
+/**
+ * qmap_encapsulate_skb() - encapsulate a given skb with a QMAP
+ * header
+ * @skb: the packet that will be encapsulated with QMAP header
+ *
+ * Return value: sk_buff encapsulated by a qmap header on
+ * success, Null otherwise.
+ */
+struct sk_buff* qmap_encapsulate_skb(struct sk_buff *skb, const struct qmap_hdr *qh)
+{
+	struct qmap_hdr *qh_ptr;
+
+	if (unlikely(!qh))
+		return NULL;
+
+	/* if there is no room in this skb, allocate a new one */
+	if (unlikely(skb_headroom(skb) < sizeof(*qh))) {
+		struct sk_buff *new_skb = skb_copy_expand(skb, sizeof(*qh), 0, GFP_ATOMIC);
+
+		if (!new_skb) {
+			IPAERR("no memory for skb expand\n");
+			return skb;
+		}
+		IPADBG("skb expanded. old %pK new %pK\n", skb, new_skb);
+		dev_kfree_skb_any(skb);
+		skb = new_skb;
+	}
+
+	/* make room at the head of the SKB to put the QMAP header */
+	qh_ptr = (struct qmap_hdr *)skb_push(skb, sizeof(*qh));
+	*qh_ptr = *qh;
+	qh_ptr->packet_len_with_pad = htons(skb->len);
+
+	return skb;
+}
+EXPORT_SYMBOL(qmap_encapsulate_skb);
+
+static void ipa3_eogre_info_free_cb(
+	void *buff,
+	u32   len,
+	u32   type)
+{
+	if (buff) {
+		kfree(buff);
+	}
+}
+
+/**
+ * ipa3_check_eogre() - Check if the eogre is worthy of sending to
+ *                      recipients who would use the data.
+ *
+ * Returns: 0 on success, negative on failure
+ */
+int ipa3_check_eogre(
+	struct ipa_ioc_eogre_info *eogre_info,
+	bool                      *send2uC,
+	bool                      *send2ipacm )
+{
+	struct ipa_ioc_eogre_info null_eogre;
+
+	bool cache_is_null, eogre_is_null, same;
+
+	int ret = 0;
+
+	if (eogre_info == NULL || send2uC == NULL || send2ipacm == NULL) {
+		IPAERR("NULL ptr: eogre_info(%p) and/or "
+			   "send2uC(%p) and/or send2ipacm(%p)\n",
+			   eogre_info, send2uC, send2ipacm);
+		ret = -EIO;
+		goto done;
+	}
+
+	memset(&null_eogre, 0, sizeof(null_eogre));
+
+	cache_is_null =
+		!memcmp(
+			&ipa3_ctx->eogre_cache,
+			&null_eogre,
+			sizeof(null_eogre));
+
+	eogre_is_null =
+		!memcmp(
+			eogre_info,
+			&null_eogre,
+			sizeof(null_eogre));
+
+	*send2uC = *send2ipacm = false;
+
+	if (cache_is_null) {
+
+		if (eogre_is_null) {
+			IPAERR(
+				"Attempting to disable EoGRE. EoGRE is "
+				"already disabled. No work needs to be done.\n");
+			ret = -EIO;
+			goto done;
+		}
+
+		*send2uC = *send2ipacm = true;
+
+	} else { /* (!cache_is_null) */
+
+		if (!eogre_is_null) {
+			IPAERR(
+				"EoGRE is already enabled for iptype(%d). "
+				"No work needs to be done.\n",
+				ipa3_ctx->eogre_cache.ipgre_info.iptype);
+			ret = -EIO;
+			goto done;
+		}
+
+		same = !memcmp(
+			&ipa3_ctx->eogre_cache.map_info,
+			&eogre_info->map_info,
+			sizeof(struct IpaDscpVlanPcpMap_t));
+
+		*send2uC = !same;
+
+		same = !memcmp(
+			&ipa3_ctx->eogre_cache.ipgre_info,
+			&eogre_info->ipgre_info,
+			sizeof(struct ipa_ipgre_info));
+
+		*send2ipacm = !same;
+	}
+
+	ipa3_ctx->eogre_cache = *eogre_info;
+
+	IPADBG("send2uC(%u) send2ipacm(%u)\n",
+		   *send2uC, *send2ipacm);
+
+done:
+	return ret;
+}
+
+/**
+ * ipa3_send_eogre_info() - Notify ipacm of incoming eogre event
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note: Should not be called from atomic context
+ */
+int ipa3_send_eogre_info(
+	enum ipa_eogre_event       etype,
+	struct ipa_ioc_eogre_info *info )
+{
+	struct ipa_msg_meta    msg_meta;
+	struct ipa_ipgre_info *eogre_info;
+
+	int                    res = 0;
+
+	if (!info) {
+		IPAERR("Bad arg: info is NULL\n");
+		res = -EIO;
+		goto done;
+	}
+
+	/*
+	 * Prep and send msg to ipacm
+	 */
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+
+	eogre_info = kzalloc(
+		sizeof(struct ipa_ipgre_info), GFP_KERNEL);
+
+	if (!eogre_info) {
+		IPAERR("eogre_info memory allocation failed !\n");
+		res = -ENOMEM;
+		goto done;
+	}
+
+	memcpy(eogre_info,
+		   &(info->ipgre_info),
+		   sizeof(struct ipa_ipgre_info));
+
+	msg_meta.msg_type = etype;
+	msg_meta.msg_len  = sizeof(struct ipa_ipgre_info);
+
+	/*
+	 * Post event to ipacm
+	 */
+	res = ipa3_send_msg(&msg_meta, eogre_info, ipa3_eogre_info_free_cb);
+
+	if (res) {
+		IPAERR_RL("ipa3_send_msg failed: %d\n", res);
+		kfree(eogre_info);
+		goto done;
+	}
+
+done:
+	return res;
+}

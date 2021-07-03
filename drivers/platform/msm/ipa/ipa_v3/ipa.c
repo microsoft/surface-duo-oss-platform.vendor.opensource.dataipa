@@ -63,6 +63,11 @@
 
 #define IPA_SUSPEND_BUSY_TIMEOUT (msecs_to_jiffies(10))
 
+#define DEFAULT_MPM_RING_SIZE_UL 6
+#define DEFAULT_MPM_RING_SIZE_DL 16
+#define DEFAULT_MPM_TETH_AGGR_SIZE 24
+#define DEFAULT_MPM_UC_THRESH_SIZE 4
+
 /*
  * The following for adding code (ie. for EMULATION) not found on x86.
  */
@@ -131,6 +136,8 @@ static void ipa_dec_clients_disable_clks_on_wq(struct work_struct *work);
 static DECLARE_DELAYED_WORK(ipa_dec_clients_disable_clks_on_wq_work,
 	ipa_dec_clients_disable_clks_on_wq);
 
+static DECLARE_DELAYED_WORK(ipa_dec_clients_disable_clks_on_suspend_irq_wq_work,
+	ipa_dec_clients_disable_clks_on_wq);
 static void ipa_inc_clients_enable_clks_on_wq(struct work_struct *work);
 static DECLARE_WORK(ipa_inc_clients_enable_clks_on_wq_work,
 	ipa_inc_clients_enable_clks_on_wq);
@@ -188,6 +195,9 @@ bool ipa_is_test_prod_flt_in_sram_internal(enum ipa_ip_type ip)
 		return false;
 
 	gsi_ep_info_cfg = ipa3_get_gsi_ep_info(IPA_CLIENT_TEST_PROD);
+	if(gsi_ep_info_cfg == NULL)
+		return false;
+
 	flt_tbl = &ipa3_ctx->flt_tbl[gsi_ep_info_cfg->ipa_ep_num][ip];
 
 	return !flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] &&
@@ -918,6 +928,14 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 	buff = pdn_info;
 
 	msg_meta.msg_type = pdn_info->pdn_cfg_type;
+	/* null terminate the string */
+	pdn_info->dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+	if ((pdn_info->pdn_cfg_type < IPA_PDN_DEFAULT_MODE_CONFIG) ||
+			(pdn_info->pdn_cfg_type >= IPA_PDN_CONFIG_EVENT_MAX)) {
+		IPAERR_RL("invalid pdn_cfg_type =%d", pdn_info->pdn_cfg_type);
+		kfree(pdn_info);
+		return -EINVAL;
+	}
 
 	IPADBG("type %d, interface name: %s, enable:%d\n", msg_meta.msg_type,
 		pdn_info->dev_name, pdn_info->enable);
@@ -2312,6 +2330,8 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct ipa_ioc_nat_dma_cmd *table_dma_cmd;
 	struct ipa_ioc_get_vlan_mode vlan_mode;
 	struct ipa_ioc_wigig_fst_switch fst_switch;
+	struct ipa_ioc_eogre_info eogre_info;
+	bool send2uC, send2ipacm;
 	size_t sz;
 	int pre_entry;
 	int hdl;
@@ -3152,12 +3172,14 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_RM_ADD_DEPENDENCY:
 		/* IPA RM is deprecate because IPA PM is used */
 		IPAERR("using obselete command: IPA_IOC_RM_ADD_DEPENDENCY");
-		return -EINVAL;
+		retval = -EINVAL;
+		break;
 
 	case IPA_IOC_RM_DEL_DEPENDENCY:
 		/* IPA RM is deprecate because IPA PM is used */
 		IPAERR("using obselete command: IPA_IOC_RM_DEL_DEPENDENCY");
-		return -EINVAL;
+		retval = -EINVAL;
+		break;
 
 	case IPA_IOC_GENERATE_FLT_EQ:
 		{
@@ -3616,6 +3638,66 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ipa3_send_pkt_threshold(arg))
 			retval = -EFAULT;
 		break;
+
+	case IPA_IOC_ADD_EoGRE_MAPPING:
+		if (copy_from_user(
+				&eogre_info,
+				(const void __user *) arg,
+				sizeof(struct ipa_ioc_eogre_info))) {
+			IPAERR_RL("copy_from_user fails\n");
+			retval = -EFAULT;
+			break;
+		}
+
+		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+
+		if (retval == 0 && send2uC == true) {
+			/*
+			 * Send map to uC...
+			 */
+			retval = ipa3_add_dscp_vlan_pcp_map(
+				&eogre_info.map_info);
+		}
+
+		if (retval == 0 && send2ipacm == true) {
+			/*
+			 * Send ip addrs to ipacm...
+			 */
+			retval = ipa3_send_eogre_info(IPA_EoGRE_UP_EVENT, &eogre_info);
+		}
+
+		if (retval == 0) {
+			ipa3_ctx->eogre_enabled = true;
+		}
+
+		break;
+
+	case IPA_IOC_DEL_EoGRE_MAPPING:
+		memset(&eogre_info, 0, sizeof(eogre_info));
+
+		retval = ipa3_check_eogre(&eogre_info, &send2uC, &send2ipacm);
+
+		if (retval == 0 && send2uC == true) {
+			/*
+			 * Send map clear to uC...
+			 */
+			retval = ipa3_add_dscp_vlan_pcp_map(
+				&eogre_info.map_info);
+		}
+
+		if (retval == 0 && send2ipacm == true) {
+			/*
+			 * Send null ip addrs to ipacm...
+			 */
+			retval = ipa3_send_eogre_info(IPA_EoGRE_DOWN_EVENT, &eogre_info);
+		}
+
+		if (retval == 0) {
+			ipa3_ctx->eogre_enabled = false;
+		}
+
+		break;
+
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -ENOTTY;
@@ -5700,6 +5782,12 @@ long compat_ipa3_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case IPA_IOC_APP_CLOCK_VOTE32:
 		cmd = IPA_IOC_APP_CLOCK_VOTE;
 		break;
+	case IPA_IOC_ADD_EoGRE_MAPPING32:
+		cmd = IPA_IOC_ADD_EoGRE_MAPPING;
+		break;
+	case IPA_IOC_DEL_EoGRE_MAPPING32:
+		cmd = IPA_IOC_DEL_EoGRE_MAPPING;
+		break;
 	case IPA_IOC_COMMIT_HDR:
 	case IPA_IOC_RESET_HDR:
 	case IPA_IOC_COMMIT_RT:
@@ -6222,6 +6310,22 @@ void ipa3_dec_client_disable_clks_no_block(
 		&ipa_dec_clients_disable_clks_on_wq_work, 0);
 }
 
+/**
+ * ipa3_dec_client_disable_clks_delay_wq() - Decrease active clients counter
+ * in delayed workqueue.
+ *
+ * Return codes:
+ * None
+ */
+void ipa3_dec_client_disable_clks_delay_wq(
+	struct ipa_active_client_logging_info *id, unsigned long delay)
+{
+	ipa3_active_clients_log_dec(id, true);
+
+	if (!queue_delayed_work(ipa3_ctx->power_mgmt_wq,
+		&ipa_dec_clients_disable_clks_on_suspend_irq_wq_work, delay))
+		IPAERR("Scheduling delayed work failed\n");
+}
 /**
  * ipa3_inc_acquire_wakelock() - Increase active clients counter, and
  * acquire wakelock if necessary
@@ -8208,6 +8312,12 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->ulso_ip_id_max = resource_p->ulso_ip_id_max;
 	ipa3_ctx->use_pm_wrapper = resource_p->use_pm_wrapper;
 	ipa3_ctx->use_tput_est_ep = resource_p->use_tput_est_ep;
+	ipa3_ctx->mpm_ring_size_ul_cache = DEFAULT_MPM_RING_SIZE_UL;
+	ipa3_ctx->mpm_ring_size_ul = DEFAULT_MPM_RING_SIZE_UL;
+	ipa3_ctx->mpm_ring_size_dl_cache = DEFAULT_MPM_RING_SIZE_DL;
+	ipa3_ctx->mpm_ring_size_dl = DEFAULT_MPM_RING_SIZE_DL;
+	ipa3_ctx->mpm_teth_aggr_size = DEFAULT_MPM_TETH_AGGR_SIZE;
+	ipa3_ctx->mpm_uc_thresh = DEFAULT_MPM_UC_THRESH_SIZE;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -8680,8 +8790,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		goto fail_wwan_init;
 	}
 
-	if (ipa3_ctx->rmnet_ctl_enable &&
-		ipa3_ctx->platform_type != IPA_PLAT_TYPE_APQ) {
+	if (ipa3_ctx->rmnet_ctl_enable) {
 		result = ipa3_rmnet_ctl_init();
 		if (result) {
 			IPAERR(":ipa3_rmnet_ctl_init err=%d\n", -result);
@@ -9061,6 +9170,8 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->max_num_smmu_cb = IPA_SMMU_CB_MAX;
 	ipa_drv_res->ipa_endp_delay_wa_v2 = false;
 	ipa_drv_res->use_tput_est_ep = false;
+	ipa_drv_res->rmnet_ctl_enable = 0;
+	ipa_drv_res->rmnet_ll_enable = 0;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -9330,19 +9441,21 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": Enable tx polling = %s\n", ipa_drv_res->tx_poll
 		? "True" : "False");
 
-	ipa_drv_res->rmnet_ctl_enable =
-		of_property_read_bool(pdev->dev.of_node,
-		"qcom,rmnet-ctl-enable");
-	IPADBG(": Enable rmnet ctl = %s\n",
-		ipa_drv_res->rmnet_ctl_enable
-		? "True" : "False");
+	if (ipa_drv_res->platform_type != IPA_PLAT_TYPE_APQ) {
+		ipa_drv_res->rmnet_ctl_enable =
+			of_property_read_bool(pdev->dev.of_node,
+			"qcom,rmnet-ctl-enable");
+		IPADBG(": Enable rmnet ctl = %s\n",
+			ipa_drv_res->rmnet_ctl_enable
+			? "True" : "False");
 
-	ipa_drv_res->rmnet_ll_enable =
-		of_property_read_bool(pdev->dev.of_node,
-		"qcom,rmnet-ll-enable");
-	IPADBG(": Enable rmnet ll = %s\n",
-		ipa_drv_res->rmnet_ll_enable
-		? "True" : "False");
+		ipa_drv_res->rmnet_ll_enable =
+			of_property_read_bool(pdev->dev.of_node,
+			"qcom,rmnet-ll-enable");
+		IPADBG(": Enable rmnet ll = %s\n",
+			ipa_drv_res->rmnet_ll_enable
+			? "True" : "False");
+	}
 
 	result = of_property_read_u32(pdev->dev.of_node,
 		"qcom,gsi-msi-addr",

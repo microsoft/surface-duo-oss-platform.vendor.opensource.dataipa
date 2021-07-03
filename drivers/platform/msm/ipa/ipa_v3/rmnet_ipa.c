@@ -1884,8 +1884,6 @@ static int handle3_egress_format(struct net_device *dev,
 		/* send aggr_info_qmi */
 		rc = ipa3_qmi_set_aggr_info(DATA_AGGR_TYPE_QMAP_V01);
 		rmnet_ipa3_ctx->ipa_mhi_aggr_formet_set = true;
-		/* register Q6 indication */
-		rc = ipa3_qmi_req_ind();
 		return rc;
 	}
 
@@ -5524,6 +5522,10 @@ void ipa3_broadcast_quota_reach_ind(u32 mux_id,
 	if (upstream_type == IPA_UPSTEAM_MAX) {
 		IPAWANERR(" Wrong upstreamIface type %d\n", upstream_type);
 		return;
+	} else if (upstream_type == IPA_UPSTEAM_WLAN) {
+		/* TODO: Fix this case when adding quota on WLAN Backhaul*/
+		IPAWANERR_RL("Quota indication is not supported for WLAN\n");
+		return;
 	} else if (upstream_type == IPA_UPSTEAM_MODEM) {
 		index = ipa3_find_mux_channel_index(mux_id);
 		if (index == MAX_NUM_OF_MUX_CHANNEL) {
@@ -6385,7 +6387,7 @@ EXPORT_SYMBOL(ipa3_wwan_platform_driver_register);
 int rmnet_ipa3_query_per_client_stats_v2(
 		struct wan_ioctl_query_per_client_stats *data)
 {
-	int lan_clnt_idx, i, j, result = 1;
+	int lan_clnt_idx, i, j, result = 1, stats_idx = 0;
 	struct ipa_lan_client *lan_client = NULL;
 	struct ipa_lan_client_cntr_index
 		*lan_client_index = NULL;
@@ -6437,18 +6439,6 @@ int rmnet_ipa3_query_per_client_stats_v2(
 			return -EINVAL;
 		}
 
-		teth_ptr = &rmnet_ipa3_ctx->tether_device[data->device_type];
-		lan_client = &teth_ptr->lan_client[lan_clnt_idx];
-		/*
-		 * Check if disconnect flag is set and
-		 * and client is inited or not.
-		 * if inited ignore resetting stats and return.
-		 */
-		if (data->disconnect_clnt && lan_client->inited) {
-			IPAWANERR("Client not inited.\n");
-			mutex_unlock(&rmnet_ipa3_ctx->per_client_stats_guard);
-			return -EAGAIN;
-		}
 	} else {
 		/* Max number of clients. */
 		/* Check if disconnect flag is set and
@@ -6504,19 +6494,23 @@ int rmnet_ipa3_query_per_client_stats_v2(
 		}
 		fnr_stats = &((struct ipa_flt_rt_stats *)
 				query->stats)[0];
-		data->client_info[i].ipv4_tx_bytes =
+		if (data->num_clients == 1)
+			stats_idx = 0;
+		else
+			stats_idx = i;
+		data->client_info[stats_idx].ipv4_tx_bytes =
 			fnr_stats->num_bytes;
 		fnr_stats = &((struct ipa_flt_rt_stats *)
 				query->stats)[1];
-		data->client_info[i].ipv4_rx_bytes =
+		data->client_info[stats_idx].ipv4_rx_bytes =
 			fnr_stats->num_bytes;
-		memcpy(data->client_info[i].mac,
+		memcpy(data->client_info[stats_idx].mac,
 				lan_client[i].mac,
 				IPA_MAC_ADDR_SIZE);
 
-		IPAWANDBG("Client ipv4_tx_bytes = %lu, ipv4_rx_bytes = %lu\n",
-				data->client_info[i].ipv4_tx_bytes,
-				data->client_info[i].ipv4_rx_bytes);
+		IPAWANDBG("Client ipv4_tx_bytes = %llu, ipv4_rx_bytes = %llu\n",
+				data->client_info[stats_idx].ipv4_tx_bytes,
+				data->client_info[stats_idx].ipv4_rx_bytes);
 
 		kfree((void *)query->stats);
 		ret = result;

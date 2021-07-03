@@ -1665,7 +1665,7 @@ static void ipa3_q6_clnt_install_firewall_rules_ind_cb(
 	}
 }
 
-static void ipa3_q6_clnt_bw_vhang_ind_cb(struct qmi_handle *handle,
+static void ipa3_q6_clnt_bw_change_ind_cb(struct qmi_handle *handle,
 	struct sockaddr_qrtr *sq,
 	struct qmi_txn *txn,
 	const void *data)
@@ -1958,7 +1958,7 @@ static struct qmi_msg_handler client_handlers[] = {
 		.msg_id = QMI_IPA_BW_CHANGE_INDICATION_V01,
 		.ei = ipa_bw_change_ind_msg_v01_ei,
 		.decoded_size = IPA_BW_CHANGE_IND_MSG_V01_MAX_MSG_LEN,
-		.fn = ipa3_q6_clnt_bw_vhang_ind_cb,
+		.fn = ipa3_q6_clnt_bw_change_ind_cb,
 	},
 };
 
@@ -2286,6 +2286,7 @@ int ipa3_qmi_set_aggr_info(enum ipa_aggr_enum_type_v01 aggr_enum_type)
 
 	/* replace to right qmap format */
 	aggr_req.aggr_info[1].aggr_type = aggr_enum_type;
+	aggr_req.aggr_info[1].bytes_count = ipa3_ctx->mpm_teth_aggr_size;
 	aggr_req.aggr_info[2].aggr_type = aggr_enum_type;
 	aggr_req.aggr_info[3].aggr_type = aggr_enum_type;
 	aggr_req.aggr_info[4].aggr_type = aggr_enum_type;
@@ -2326,7 +2327,7 @@ int ipa3_qmi_set_aggr_info(enum ipa_aggr_enum_type_v01 aggr_enum_type)
 		resp.resp.error, "ipa_mhi_prime_aggr_info_req_msg_v01");
 }
 
-int ipa3_qmi_req_ind(void)
+int ipa3_qmi_req_ind(bool bw_reg)
 {
 	struct ipa_indication_reg_req_msg_v01 req;
 	struct ipa_indication_reg_resp_msg_v01 resp;
@@ -2337,7 +2338,7 @@ int ipa3_qmi_req_ind(void)
 	memset(&resp, 0, sizeof(struct ipa_indication_reg_resp_msg_v01));
 
 	req.bw_change_ind_valid = true;
-	req.bw_change_ind = true;
+	req.bw_change_ind = bw_reg;
 
 	req_desc.max_msg_len =
 		QMI_IPA_INDICATION_REGISTER_REQ_MAX_MSG_LEN_V01;
