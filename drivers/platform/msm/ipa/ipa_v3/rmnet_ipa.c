@@ -1204,6 +1204,11 @@ static netdev_tx_t ipa3_wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_OK;
 	}
 
+	if (unlikely(skb == NULL)) {
+		IPAWANERR_RL("unexpected NULL data\n");
+		return NETDEV_TX_BUSY;
+	}
+
 	if (skb->protocol != htons(ETH_P_MAP)) {
 		IPAWANDBG_LOW
 		("SW filtering out none QMAP packet received from %s",
@@ -1571,13 +1576,14 @@ static int handle3_ingress_format(struct net_device *dev,
 	}
 	IPAWANDBG("ingress WAN pipe setup successfully\n");
 
-	ret = ipa3_setup_apps_low_lat_cons_pipe();
-	if (ret)
-		goto low_lat_fail;
+	if (ipa3_ctx->rmnet_ctl_enable) {
+		ret = ipa3_setup_apps_low_lat_cons_pipe();
+		if (ret)
+			goto low_lat_fail;
 
-	ingress_eps_mask |= IPA_AP_INGRESS_EP_LOW_LAT;
-
-	IPAWANDBG("ingress low latency pipe setup successfully\n");
+		ingress_eps_mask |= IPA_AP_INGRESS_EP_LOW_LAT;
+		IPAWANDBG("ingress low latency pipe setup successfully\n");
+	}
 
 low_lat_fail:
 	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
@@ -1698,13 +1704,15 @@ static int handle3_egress_format(struct net_device *dev,
 		return rc;
 	}
 	IPAWANDBG("engress WAN pipe setup successfully\n");
-	rc = ipa3_setup_apps_low_lat_prod_pipe();
-	if (rc) {
-		IPAWANERR("failed to setup egress low lat endpoint\n");
-		mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
-		goto low_lat_fail;
+	if (ipa3_ctx->rmnet_ctl_enable) {
+		rc = ipa3_setup_apps_low_lat_prod_pipe();
+		if (rc) {
+			IPAWANERR("failed to setup egress low lat endpoint\n");
+			mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
+			goto low_lat_fail;
+		}
+		IPAWANDBG("engress low lat pipe setup successfully\n");
 	}
-	IPAWANDBG("engress low lat pipe setup successfully\n");
 	mutex_unlock(&rmnet_ipa3_ctx->pipe_handle_guard);
 
 low_lat_fail:
@@ -2229,16 +2237,14 @@ static int rmnet_ipa_send_coalesce_notification(uint8_t qmap_id,
 	if (!coalesce_info)
 		return -ENOMEM;
 
-	if (enable) {
-		coalesce_info->qmap_id = qmap_id;
-		coalesce_info->tcp_enable = tcp;
-		coalesce_info->udp_enable = udp;
+	coalesce_info->qmap_id = qmap_id;
+	coalesce_info->tcp_enable = tcp;
+	coalesce_info->udp_enable = udp;
+	msg_meta.msg_len = sizeof(struct ipa_coalesce_info);
+	if (enable)
 		msg_meta.msg_type = IPA_COALESCE_ENABLE;
-		msg_meta.msg_len = sizeof(struct ipa_coalesce_info);
-	} else {
+	else
 		msg_meta.msg_type = IPA_COALESCE_DISABLE;
-		msg_meta.msg_len = sizeof(struct ipa_coalesce_info);
-	}
 	rc = ipa_send_msg(&msg_meta, coalesce_info, ipa3_wwan_msg_free_cb);
 	if (rc) {
 		IPAWANERR("ipa_send_msg failed: %d\n", rc);
@@ -4166,7 +4172,8 @@ int rmnet_ipa3_query_tethering_stats_all(
 	} else if (upstream_type == IPA_UPSTEAM_WLAN) {
 		IPAWANDBG_LOW(" query wifi-backhaul stats\n");
 		if (ipa3_ctx_get_type(IPA_HW_TYPE) < IPA_HW_v4_5 ||
-			!ipa3_ctx_get_flag(IPA_HW_STATS_EN)) {
+			!ipa3_ctx_get_flag(IPA_HW_STATS_EN) ||
+			ipa3_ctx->fnr_stats_not_supported) {
 			IPAWANDBG("hw version %d,hw_stats.enabled %d\n",
 				ipa3_ctx_get_type(IPA_HW_TYPE),
 				ipa3_ctx_get_flag(IPA_HW_STATS_EN));
@@ -4278,6 +4285,10 @@ void ipa3_broadcast_quota_reach_ind(u32 mux_id,
 	/* check upstream_type*/
 	if (upstream_type == IPA_UPSTEAM_MAX) {
 		IPAWANERR(" Wrong upstreamIface type %d\n", upstream_type);
+		return;
+	} else if (upstream_type == IPA_UPSTEAM_WLAN) {
+		/* TODO: Fix this case when adding quota on WLAN Backhaul*/
+		IPAWANERR_RL("Quota indication is not supported for WLAN\n");
 		return;
 	} else if (upstream_type == IPA_UPSTEAM_MODEM) {
 		index = ipa3_find_mux_channel_index(mux_id);

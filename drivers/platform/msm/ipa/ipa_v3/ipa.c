@@ -6025,6 +6025,13 @@ static int ipa3_panic_notifier(struct notifier_block *this,
 	int res;
 	struct ipa_active_client_logging_info log_info;
 
+	if (ipa3_ctx != NULL)
+	{
+		if (ipa3_ctx->is_device_crashed)
+			return NOTIFY_DONE;
+		ipa3_ctx->is_device_crashed = true;
+	}
+
 	ipa3_freeze_clock_vote_and_notify_modem();
 
 	IPADBG("Calling uC panic handler\n");
@@ -7126,6 +7133,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->gsi_ch20_wa = resource_p->gsi_ch20_wa;
 	ipa3_ctx->wdi_over_pcie = resource_p->wdi_over_pcie;
 	ipa3_ctx->ipa3_active_clients_logging.log_rdy = false;
+	ipa3_ctx->is_device_crashed = false;
 	ipa3_ctx->mhi_evid_limits[0] = resource_p->mhi_evid_limits[0];
 	ipa3_ctx->mhi_evid_limits[1] = resource_p->mhi_evid_limits[1];
 	ipa3_ctx->entire_ipa_block_size = resource_p->entire_ipa_block_size;
@@ -7150,6 +7158,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->manual_fw_load = resource_p->manual_fw_load;
 	ipa3_ctx->max_num_smmu_cb = resource_p->max_num_smmu_cb;
 	ipa3_ctx->hw_type_index = ipa3_get_hw_type_index();
+	ipa3_ctx->fnr_stats_not_supported = resource_p->fnr_stats_not_supported;
 
 	if (resource_p->gsi_fw_file_name) {
 		ipa3_ctx->gsi_fw_file_name =
@@ -7961,6 +7970,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->is_eth_bridging_supported = false;
 	ipa_drv_res->is_bw_monitor_supported = false;
 	ipa_drv_res->modem_load_ipa_fw = false;
+	ipa_drv_res->fnr_stats_not_supported = false;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -8253,6 +8263,13 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 		"qcom,modem-load-ipa-fw");
 	IPADBG(": Load IPA_FW by modem = %s\n",
 		ipa_drv_res->modem_load_ipa_fw
+		? "True" : "False");
+
+	ipa_drv_res->fnr_stats_not_supported =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,fnr-stats-not-supported");
+	IPADBG(": FnR stats not supported = %s\n",
+		ipa_drv_res->fnr_stats_not_supported
 		? "True" : "False");
 
 	result = of_property_read_string(pdev->dev.of_node,
