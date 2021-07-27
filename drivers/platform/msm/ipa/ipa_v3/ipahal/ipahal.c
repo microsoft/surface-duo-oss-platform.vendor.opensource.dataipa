@@ -27,6 +27,7 @@ static const char *ipahal_imm_cmd_name_to_str[IPA_IMM_CMD_MAX] = {
 	__stringify(IPA_IMM_CMD_HDR_INIT_LOCAL),
 	__stringify(IPA_IMM_CMD_HDR_INIT_SYSTEM),
 	__stringify(IPA_IMM_CMD_REGISTER_WRITE),
+	__stringify(IPA_IMM_CMD_REGISTER_READ),
 	__stringify(IPA_IMM_CMD_NAT_DMA),
 	__stringify(IPA_IMM_CMD_IP_PACKET_INIT),
 	__stringify(IPA_IMM_CMD_DMA_SHARED_MEM),
@@ -310,6 +311,53 @@ static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_register_write_v_4_0(
 	default:
 		IPAHAL_ERR("unsupported pipline clear option %d\n",
 			regwrt_params->pipeline_clear_options);
+		WARN_ON(1);
+	}
+
+	return pyld;
+}
+
+static struct ipahal_imm_cmd_pyld *ipa_imm_cmd_construct_register_read(
+	enum ipahal_imm_cmd_name cmd, const void *params, bool is_atomic_ctx)
+{
+	struct ipahal_imm_cmd_pyld *pyld;
+	struct ipa_imm_cmd_hw_register_read *data;
+	struct ipahal_imm_cmd_register_read *regrd_params =
+		(struct ipahal_imm_cmd_register_read *)params;
+
+	if (unlikely(regrd_params->offset & ~0xFFFF)) {
+		IPAHAL_ERR("Offset is bigger than 16bit width 0x%x\n",
+			regrd_params->offset);
+		WARN_ON(1);
+		return NULL;
+	}
+
+	pyld = IPAHAL_MEM_ALLOC(sizeof(*pyld) + sizeof(*data), is_atomic_ctx);
+	if (unlikely(!pyld)) {
+		WARN_ON(1);
+		return pyld;
+	}
+	pyld->opcode = ipahal_imm_cmd_get_opcode(cmd);
+	pyld->len = sizeof(*data);
+	data = (struct ipa_imm_cmd_hw_register_read *)pyld->data;
+
+	data->offset = regrd_params->offset;
+	data->offset_high = regrd_params->offset >> 16;
+	data->sys_addr = regrd_params->sys_addr;
+
+	pyld->opcode |= (regrd_params->skip_pipeline_clear ? 1 : 0) << 8;
+	switch (regrd_params->pipeline_clear_options) {
+	case IPAHAL_HPS_CLEAR:
+		break;
+	case IPAHAL_SRC_GRP_CLEAR:
+		pyld->opcode |= (1 << 9);
+		break;
+	case IPAHAL_FULL_PIPELINE_CLEAR:
+		pyld->opcode |= (2 << 9);
+		break;
+	default:
+		IPAHAL_ERR("unsupported pipline clear option %d\n",
+			regrd_params->pipeline_clear_options);
 		WARN_ON(1);
 	}
 
@@ -889,6 +937,11 @@ static struct ipahal_imm_cmd_obj
 		ipa_imm_cmd_construct_ip_packet_init_ex,
 		ipa_imm_cmd_modify_ip_packet_init_ex,
 		18},
+
+	[IPA_HW_v5_1][IPA_IMM_CMD_REGISTER_READ] = {
+		ipa_imm_cmd_construct_register_read,
+		ipa_imm_cmd_modify_dummy,
+		13},
 };
 
 /*
@@ -1920,6 +1973,18 @@ static int ipahal_cp_proc_ctx_to_hw_buff_v3(enum ipa_hdr_proc_type type,
 			(struct ipa_hw_hdr_proc_ctx_remove_eogre_hdr_cmd_seq *)
 			(base + offset);
 
+		ctx->hdr_add.tlv.type = IPA_PROC_CTX_TLV_TYPE_HDR_ADD;
+		ctx->hdr_add.tlv.length = 2;
+		ctx->hdr_add.tlv.value = hdr_len;
+		hdr_addr = is_hdr_proc_ctx ? phys_base :
+			hdr_base_addr + offset_entry->offset;
+		IPAHAL_DBG("header address 0x%llx length %d\n",
+				   hdr_addr, ctx->hdr_add.tlv.value);
+		IPAHAL_CP_PROC_CTX_HEADER_UPDATE(
+			ctx->hdr_add.hdr_addr,
+			ctx->hdr_add.hdr_addr_hi, hdr_addr);
+		if (!is_64)
+			ctx->hdr_add.hdr_addr_hi = 0;
 		ctx->eogre_params.tlv.type = IPA_PROC_CTX_TLV_TYPE_PROC_CMD;
 		ctx->eogre_params.tlv.length = 1;
 		ctx->eogre_params.tlv.value = IPA_HDR_UCP_EoGRE_HEADER_REMOVE;
@@ -2092,7 +2157,7 @@ void ipahal_cp_hdr_to_hw_buff(void *base, u32 offset, u8 *const hdr,
 	IPAHAL_DBG_LOW("Entry\n");
 	IPAHAL_DBG("base %pK, offset %d, hdr %pK, hdr_len %d\n", base,
 			offset, hdr, hdr_len);
-	if (!base || !hdr_len || !hdr) {
+	if (!base || !hdr) {
 		IPAHAL_ERR("failed on validating params\n");
 		return;
 	}
@@ -2133,7 +2198,6 @@ int ipahal_cp_proc_ctx_to_hw_buff(enum ipa_hdr_proc_type type,
 			hdr_base_addr, offset_entry, is_64);
 
 	if (!base ||
-		!hdr_len ||
 		(is_hdr_proc_ctx && !phys_base) ||
 		(!is_hdr_proc_ctx && !offset_entry) ||
 		(!is_hdr_proc_ctx && !hdr_base_addr)) {

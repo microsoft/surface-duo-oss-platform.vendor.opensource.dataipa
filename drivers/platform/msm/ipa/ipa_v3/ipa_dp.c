@@ -649,6 +649,9 @@ int ipa3_send(struct ipa3_sys_context *sys,
 
 	return 0;
 
+failure_dma_map:
+	kmem_cache_free(ipa3_ctx->tx_pkt_wrapper_cache, tx_pkt);
+
 failure:
 	ipahal_destroy_imm_cmd(tag_pyld_ret);
 	tx_pkt = tx_pkt_first;
@@ -672,9 +675,6 @@ failure:
 		kmem_cache_free(ipa3_ctx->tx_pkt_wrapper_cache, tx_pkt);
 		tx_pkt = next_pkt;
 	}
-
-failure_dma_map:
-	kmem_cache_free(ipa3_ctx->tx_pkt_wrapper_cache, tx_pkt);
 
 	spin_unlock_bh(&sys->spinlock);
 	return result;
@@ -3406,8 +3406,8 @@ begin:
 							status.endp_src_idx,
 							status.endp_dest_idx,
 							status.pkt_len);
-						/* Unexpected HW status */
-						ipa_assert();
+						sys->drop_packet = true;
+						dev_kfree_skb_any(skb2);
 					} else {
 						skb2->truesize = skb2->len +
 						sizeof(struct sk_buff) +

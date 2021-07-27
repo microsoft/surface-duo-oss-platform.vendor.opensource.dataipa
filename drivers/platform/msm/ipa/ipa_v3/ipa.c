@@ -4173,7 +4173,7 @@ static int ipa3_q6_clean_q6_flt_tbls(enum ipa_ip_type ip,
 
 	coal_ep = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (coal_ep != IPA_EP_NOT_ALLOCATED) {
+	if (coal_ep != IPA_EP_NOT_ALLOCATED && !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
 		reg_write_coal_close.skip_pipeline_clear = false;
@@ -4341,7 +4341,8 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1) {
+	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
 		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
@@ -4471,7 +4472,8 @@ static int ipa3_q6_clean_q6_tables(void)
 	}
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1) {
+	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
 		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
@@ -4571,7 +4573,8 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 		return -ENOMEM;
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1) {
+	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
 		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
@@ -5035,7 +5038,8 @@ int _ipa_init_hdr_v3_0(void)
 	dma_free_coherent(ipa3_ctx->pdev, mem.size, mem.base, mem.phys_base);
 
 	/* IC to close the coal frame before HPS Clear if coal is enabled */
-	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1) {
+	if (ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS) != -1
+		&& !ipa3_ctx->ulso_wa) {
 		u32 offset = 0;
 
 		i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
@@ -6748,6 +6752,13 @@ static int ipa3_panic_notifier(struct notifier_block *this,
 	int res;
 	struct ipa_active_client_logging_info log_info;
 
+	if (ipa3_ctx != NULL)
+	{
+		if (ipa3_ctx->is_device_crashed)
+			return NOTIFY_DONE;
+		ipa3_ctx->is_device_crashed = true;
+	}
+
 	ipa3_freeze_clock_vote_and_notify_modem();
 
 	IPADBG("Calling uC panic handler\n");
@@ -8265,6 +8276,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_ctx->gsi_ch20_wa = resource_p->gsi_ch20_wa;
 	ipa3_ctx->wdi_over_pcie = resource_p->wdi_over_pcie;
 	ipa3_ctx->ipa3_active_clients_logging.log_rdy = false;
+	ipa3_ctx->is_device_crashed = false;
 	ipa3_ctx->mhi_evid_limits[0] = resource_p->mhi_evid_limits[0];
 	ipa3_ctx->mhi_evid_limits[1] = resource_p->mhi_evid_limits[1];
 	ipa3_ctx->entire_ipa_block_size = resource_p->entire_ipa_block_size;
@@ -8370,6 +8382,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	}
 	ipa3_ctx->ipa_endp_delay_wa = resource_p->ipa_endp_delay_wa;
 	ipa3_ctx->ipa_endp_delay_wa_v2 = resource_p->ipa_endp_delay_wa_v2;
+	ipa3_ctx->ulso_wa = resource_p->ulso_wa;
 
 	WARN(!IPA_IS_REGULAR_CLK_MODE(ipa3_ctx->ipa3_hw_mode),
 		"Non NORMAL IPA HW mode, is this emulation platform ?");
@@ -9172,6 +9185,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->use_tput_est_ep = false;
 	ipa_drv_res->rmnet_ctl_enable = 0;
 	ipa_drv_res->rmnet_ll_enable = 0;
+	ipa_drv_res->ulso_wa = false;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -9271,6 +9285,11 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 			ipa_drv_res->ipa_endp_delay_wa_v2
 			? "True" : "False");
 
+	ipa_drv_res->ulso_wa = of_property_read_bool(pdev->dev.of_node,
+			"qcom,ipa-ulso-wa");
+	IPADBG(": ipa-ulso wa = %s\n",
+			ipa_drv_res->ulso_wa
+			? "True" : "False");
 
 	ipa_drv_res->ipa_wdi3_over_gsi =
 			of_property_read_bool(pdev->dev.of_node,
