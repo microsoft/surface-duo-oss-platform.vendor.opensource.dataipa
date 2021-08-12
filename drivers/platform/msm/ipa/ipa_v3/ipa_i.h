@@ -2333,6 +2333,7 @@ struct ipa3_context {
 	struct ipa_ioc_eogre_info eogre_cache;
 	bool eogre_enabled;
 	bool is_device_crashed;
+	bool ulso_wa;
 };
 
 struct ipa3_plat_drv_res {
@@ -2418,6 +2419,7 @@ struct ipa3_plat_drv_res {
 	u32 gsi_rmnet_ll_evt_ring_intvec;
 	u32 gsi_rmnet_ll_evt_ring_irq;
 	bool use_tput_est_ep;
+	bool ulso_wa;
 };
 
 /**
@@ -2915,6 +2917,7 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl);
 int ipa3_get_wdi_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_wdi3_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_usb_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
+bool ipa_usb_is_teth_prot_connected(enum ipa_usb_teth_prot usb_teth_prot);
 int ipa3_get_aqc_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_rtk_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_ntn_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
@@ -3179,6 +3182,7 @@ int ipa3_tag_aggr_force_close(int pipe_num);
 void ipa3_active_clients_unlock(void);
 int ipa3_wdi_init(void);
 int ipa_get_wdi_version(void);
+bool ipa_wdi_is_tx1_used(void);
 int ipa3_write_qmapid_gsi_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id);
@@ -3428,6 +3432,10 @@ void ipa3_eth_get_status(u32 client, int scratch_id,
 	struct ipa3_eth_error_stats *stats);
 int ipa3_get_gsi_chan_info(struct gsi_chan_info *gsi_chan_info,
 	unsigned long chan_hdl);
+enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type(
+	enum ipa_eth_client_type eth_client_type, enum ipa_eth_pipe_direction dir);
+
+bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id);
 
 int ipa3_disable_apps_wan_cons_deaggr(uint32_t agg_size, uint32_t agg_count);
 

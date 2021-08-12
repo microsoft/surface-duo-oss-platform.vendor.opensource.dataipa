@@ -451,6 +451,8 @@ static void ipa_close_coal_frame(struct ipahal_imm_cmd_pyld **coal_cmd_pyld)
 	struct ipahal_imm_cmd_register_write reg_write_coal_close;
 	u32 offset = 0;
 
+	if (ipa3_ctx->ulso_wa)
+		return;
 	i = ipa3_get_ep_mapping(IPA_CLIENT_APPS_WAN_COAL_CONS);
 	reg_write_coal_close.skip_pipeline_clear = false;
 	reg_write_coal_close.pipeline_clear_options = IPAHAL_HPS_CLEAR;
@@ -1855,6 +1857,12 @@ int ipa_drop_stats_init(void)
 	/* Always enable drop stats for USB DPL Pipe. */
 	mask = ipa_hw_stats_get_ep_bit_n_idx(
 		IPA_CLIENT_USB_DPL_CONS,
+		&reg_idx);
+	pipe_bitmask[reg_idx] |= mask;
+
+	/* Always enable drop stats for ODL DPL Pipe. */
+	mask = ipa_hw_stats_get_ep_bit_n_idx(
+		IPA_CLIENT_ODL_DPL_CONS,
 		&reg_idx);
 	pipe_bitmask[reg_idx] |= mask;
 
