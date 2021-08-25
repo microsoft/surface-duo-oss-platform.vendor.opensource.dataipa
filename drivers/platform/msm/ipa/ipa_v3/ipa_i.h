@@ -44,6 +44,14 @@
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
 
+#define IPA_v4_USB0_EP_ID		11
+#define IPA_v4_USB1_EP_ID		12
+
+#define IPA_v4_PCIE0_EP_ID		21
+#define IPA_v4_PCIE1_EP_ID		22
+
+#define IPA_v5_PCIE0_EP_ID		4
+
 #define IPA_COOKIE 0x57831603
 #define IPA_RT_RULE_COOKIE 0x57831604
 #define IPA_RT_TBL_COOKIE 0x57831605
@@ -2290,7 +2298,8 @@ struct ipa3_context {
 	u32 icc_num_cases;
 	u32 icc_num_paths;
 	u32 icc_clk[IPA_ICC_LVL_MAX][IPA_ICC_PATH_MAX][IPA_ICC_TYPE_MAX];
-	struct ipahal_imm_cmd_pyld *coal_cmd_pyld;
+	struct ipahal_imm_cmd_pyld *coal_cmd_pyld[2];
+	struct ipa_mem_buffer ulso_wa_cmd;
 	u32 tx_wrapper_cache_max_size;
 	struct ipa3_app_clock_vote app_clock_vote;
 	bool clients_registered;
@@ -2784,7 +2793,8 @@ int ipa3_add_rt_rule(struct ipa_ioc_add_rt_rule *rules);
 
 int ipa3_add_rt_rule_ext(struct ipa_ioc_add_rt_rule_ext *rules);
 
-int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules);
+int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules,
+	bool user);
 
 int ipa3_add_rt_rule_after(struct ipa_ioc_add_rt_rule_after *rules);
 
