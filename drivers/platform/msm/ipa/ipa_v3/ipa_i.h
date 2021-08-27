@@ -44,6 +44,14 @@
 #define IPA_DEV_NAME_MAX_LEN 15
 #define DRV_NAME "ipa"
 
+#define IPA_v4_USB0_EP_ID		11
+#define IPA_v4_USB1_EP_ID		12
+
+#define IPA_v4_PCIE0_EP_ID		21
+#define IPA_v4_PCIE1_EP_ID		22
+
+#define IPA_v5_PCIE0_EP_ID		4
+
 #define IPA_COOKIE 0x57831603
 #define IPA_RT_RULE_COOKIE 0x57831604
 #define IPA_RT_TBL_COOKIE 0x57831605
@@ -2290,7 +2298,8 @@ struct ipa3_context {
 	u32 icc_num_cases;
 	u32 icc_num_paths;
 	u32 icc_clk[IPA_ICC_LVL_MAX][IPA_ICC_PATH_MAX][IPA_ICC_TYPE_MAX];
-	struct ipahal_imm_cmd_pyld *coal_cmd_pyld;
+	struct ipahal_imm_cmd_pyld *coal_cmd_pyld[2];
+	struct ipa_mem_buffer ulso_wa_cmd;
 	u32 tx_wrapper_cache_max_size;
 	struct ipa3_app_clock_vote app_clock_vote;
 	bool clients_registered;
@@ -2784,7 +2793,8 @@ int ipa3_add_rt_rule(struct ipa_ioc_add_rt_rule *rules);
 
 int ipa3_add_rt_rule_ext(struct ipa_ioc_add_rt_rule_ext *rules);
 
-int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules);
+int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules,
+	bool user);
 
 int ipa3_add_rt_rule_after(struct ipa_ioc_add_rt_rule_after *rules);
 
@@ -2917,6 +2927,7 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl);
 int ipa3_get_wdi_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_wdi3_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_usb_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
+bool ipa_usb_is_teth_prot_connected(enum ipa_usb_teth_prot usb_teth_prot);
 int ipa3_get_aqc_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_rtk_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
 int ipa3_get_ntn_gsi_stats(struct ipa_uc_dbg_ring_stats *stats);
@@ -3181,6 +3192,7 @@ int ipa3_tag_aggr_force_close(int pipe_num);
 void ipa3_active_clients_unlock(void);
 int ipa3_wdi_init(void);
 int ipa_get_wdi_version(void);
+bool ipa_wdi_is_tx1_used(void);
 int ipa3_write_qmapid_gsi_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi_pipe(u32 clnt_hdl, u8 qmap_id);
 int ipa3_write_qmapid_wdi3_gsi_pipe(u32 clnt_hdl, u8 qmap_id);
@@ -3430,6 +3442,10 @@ void ipa3_eth_get_status(u32 client, int scratch_id,
 	struct ipa3_eth_error_stats *stats);
 int ipa3_get_gsi_chan_info(struct gsi_chan_info *gsi_chan_info,
 	unsigned long chan_hdl);
+enum ipa_client_type ipa_eth_get_ipa_client_type_from_eth_type(
+	enum ipa_eth_client_type eth_client_type, enum ipa_eth_pipe_direction dir);
+
+bool ipa_eth_client_exist(enum ipa_eth_client_type eth_client_type, int inst_id);
 
 int ipa3_disable_apps_wan_cons_deaggr(uint32_t agg_size, uint32_t agg_count);
 

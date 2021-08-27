@@ -38,6 +38,7 @@
 #include <linux/qcom_scm.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include "gsi.h"
+#include "ipa_stats.h"
 
 #ifdef CONFIG_ARM64
 
@@ -630,6 +631,13 @@ static int ipa3_clean_mhip_dl_rule(void)
 static int ipa3_active_clients_panic_notifier(struct notifier_block *this,
 		unsigned long event, void *ptr)
 {
+	if (ipa3_ctx != NULL)
+	{
+		if (ipa3_ctx->is_device_crashed)
+			return NOTIFY_DONE;
+		ipa3_ctx->is_device_crashed = true;
+	}
+
 	ipa3_active_clients_log_print_table(active_clients_table_buf,
 			IPA3_ACTIVE_CLIENTS_TABLE_BUF_SIZE);
 	IPAERR("%s\n", active_clients_table_buf);
@@ -692,6 +700,7 @@ static int ipa3_active_clients_log_init(void)
 	ipa3_ctx->ipa3_active_clients_logging.log_tail =
 			IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES - 1;
 	hash_init(ipa3_ctx->ipa3_active_clients_logging.htable);
+	/* 2nd ipa3_active_clients_panic_notifier */
 	atomic_notifier_chain_register(&panic_notifier_list,
 			&ipa3_active_clients_panic_blk);
 	ipa3_ctx->ipa3_active_clients_logging.log_rdy = true;
@@ -1090,7 +1099,7 @@ static void ipa3_get_usb_ep_info(
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
 			pair_info[ep_info->num_ep_pairs].ep_id =
-				IPA_USB1_EP_ID;
+				IPA_v4_USB1_EP_ID;
 
 			IPADBG("ep_pair_info consumer_pipe_num %d",
 			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
@@ -1117,7 +1126,7 @@ static void ipa3_get_usb_ep_info(
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
 			pair_info[ep_info->num_ep_pairs].ep_id =
-				IPA_USB0_EP_ID;
+				IPA_v4_USB0_EP_ID;
 
 			IPADBG("ep_pair_info consumer_pipe_num %d",
 			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
@@ -1150,30 +1159,35 @@ static void ipa3_get_pcie_ep_info(
 		pair_info[i].ep_id = -1;
 	}
 
-	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_PROD);
+	/*
+	 * Legacy codes for ipa4.X version
+	 */
+	if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0) {
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_PROD);
 
-	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
-		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
-		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_CONS);
-		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+		if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+			ep_index = ipa3_get_ep_mapping(IPA_CLIENT_MHI2_CONS);
+			if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+				pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
-			pair_info[ep_info->num_ep_pairs].ep_id =
-				IPA_PCIE1_EP_ID;
+				pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_v4_PCIE1_EP_ID;
 
-			IPADBG("ep_pair_info consumer_pipe_num %d",
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
-			IPADBG(" producer_pipe_num %d ep_id %d\n",
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
-				pair_info[ep_info->num_ep_pairs].ep_id);
-			ep_info->num_ep_pairs++;
-		} else {
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
-			IPADBG("ep_pair_info consumer_pipe_num %d",
-			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
-			IPADBG(" producer_pipe_num %d ep_id %d\n",
-			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
-				pair_info[ep_info->num_ep_pairs].ep_id);
+				IPADBG("ep_pair_info consumer_pipe_num %d",
+					pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+				IPADBG(" producer_pipe_num %d ep_id %d\n",
+					pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+					pair_info[ep_info->num_ep_pairs].ep_id);
+				ep_info->num_ep_pairs++;
+			} else {
+				pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+				IPADBG("ep_pair_info consumer_pipe_num %d",
+					pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+				IPADBG(" producer_pipe_num %d ep_id %d\n",
+				pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+					pair_info[ep_info->num_ep_pairs].ep_id);
+			}
 		}
 	}
 
@@ -1185,8 +1199,12 @@ static void ipa3_get_pcie_ep_info(
 		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
 			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
 				ep_index;
-			pair_info[ep_info->num_ep_pairs].ep_id =
-				IPA_PCIE0_EP_ID;
+			if (ipa3_ctx->ipa_hw_type < IPA_HW_v5_0)
+				pair_info[ep_info->num_ep_pairs].ep_id =
+					IPA_v4_PCIE0_EP_ID;
+			else
+				pair_info[ep_info->num_ep_pairs].ep_id =
+					IPA_v5_PCIE0_EP_ID;
 
 			IPADBG("ep_pair_info consumer_pipe_num %d",
 			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
@@ -1288,6 +1306,7 @@ static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header, (const void __user *)arg,
@@ -1325,6 +1344,24 @@ static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg)
 	if (IS_ERR(param)) {
 		retval = -EFAULT;
 		goto free_param_kptr;
+	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_add_rt_rule_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_add_rt_rule_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_add_rt_rule_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
 	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
@@ -1365,6 +1402,8 @@ static int ipa3_ioctl_add_rt_rule_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -1380,6 +1419,7 @@ static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header,
@@ -1421,6 +1461,24 @@ static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg)
 		retval = -EFAULT;
 		goto free_param_kptr;
 	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_add_rt_rule_ext_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_add_rt_rule_ext_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_add_rt_rule_ext_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
+	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
 	if (!kptr) {
@@ -1439,7 +1497,7 @@ static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg)
 	((struct ipa_ioc_add_rt_rule_ext_v2 *)header)->rules =
 		(u64)kptr;
 	if (ipa3_add_rt_rule_ext_v2(
-		(struct ipa_ioc_add_rt_rule_ext_v2 *)header)) {
+		(struct ipa_ioc_add_rt_rule_ext_v2 *)header, true)) {
 		IPAERR_RL("ipa3_add_rt_rule_ext_v2 fails\n");
 		retval = -EPERM;
 		goto free_param_kptr;
@@ -1462,6 +1520,8 @@ static int ipa3_ioctl_add_rt_rule_ext_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -1477,6 +1537,7 @@ static int ipa3_ioctl_add_rt_rule_after_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header, (const void __user *)arg,
@@ -1517,6 +1578,23 @@ static int ipa3_ioctl_add_rt_rule_after_v2(unsigned long arg)
 		retval = -EFAULT;
 		goto free_param_kptr;
 	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_add_rt_rule_after_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_add_rt_rule_after_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_add_rt_rule_after_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
+	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
 	if (!kptr) {
@@ -1556,6 +1634,8 @@ static int ipa3_ioctl_add_rt_rule_after_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -1571,6 +1651,7 @@ static int ipa3_ioctl_mdfy_rt_rule_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header, (const void __user *)arg,
@@ -1611,6 +1692,23 @@ static int ipa3_ioctl_mdfy_rt_rule_v2(unsigned long arg)
 		retval = -EFAULT;
 		goto free_param_kptr;
 	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_mdfy_rt_rule_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_mdfy_rt_rule_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_mdfy_rt_rule_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
+	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
 	if (!kptr) {
@@ -1650,6 +1748,8 @@ static int ipa3_ioctl_mdfy_rt_rule_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -1665,6 +1765,7 @@ static int ipa3_ioctl_add_flt_rule_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header, (const void __user *)arg,
@@ -1704,6 +1805,23 @@ static int ipa3_ioctl_add_flt_rule_v2(unsigned long arg)
 		retval = -EFAULT;
 		goto free_param_kptr;
 	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_add_flt_rule_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_add_flt_rule_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_add_flt_rule_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
+	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
 	if (!kptr) {
@@ -1742,6 +1860,8 @@ static int ipa3_ioctl_add_flt_rule_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -1757,6 +1877,7 @@ static int ipa3_ioctl_add_flt_rule_after_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header, (const void __user *)arg,
@@ -1797,6 +1918,23 @@ static int ipa3_ioctl_add_flt_rule_after_v2(unsigned long arg)
 		retval = -EFAULT;
 		goto free_param_kptr;
 	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_add_flt_rule_after_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_add_flt_rule_after_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_add_flt_rule_after_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
+	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
 	if (!kptr) {
@@ -1836,6 +1974,8 @@ static int ipa3_ioctl_add_flt_rule_after_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -1851,6 +1991,7 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg)
 	u32 pyld_sz;
 	u64 uptr = 0;
 	u8 *param = NULL;
+	u8 *param2 = NULL;
 	u8 *kptr = NULL;
 
 	if (copy_from_user(header, (const void __user *)arg,
@@ -1891,6 +2032,23 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg)
 		retval = -EFAULT;
 		goto free_param_kptr;
 	}
+
+	param2 = memdup_user((const void __user *)arg,
+		sizeof(struct ipa_ioc_mdfy_flt_rule_v2));
+	if (IS_ERR(param2)) {
+		retval = -EFAULT;
+		goto free_param_kptr;
+	}
+
+	/* add check in case user-space module compromised */
+	if (unlikely(((struct ipa_ioc_mdfy_flt_rule_v2 *)param2)->num_rules
+		!= pre_entry)) {
+		IPAERR_RL("current %d pre %d\n",
+			((struct ipa_ioc_mdfy_flt_rule_v2 *)param2)->
+				num_rules, pre_entry);
+			retval = -EFAULT;
+			goto free_param_kptr;
+	}
 	/* alloc kernel pointer with actual payload size */
 	kptr = kzalloc(pyld_sz, GFP_KERNEL);
 	if (!kptr) {
@@ -1930,6 +2088,8 @@ static int ipa3_ioctl_mdfy_flt_rule_v2(unsigned long arg)
 free_param_kptr:
 	if (!IS_ERR(param))
 		kfree(param);
+	if (!IS_ERR(param2))
+		kfree(param2);
 	kfree(kptr);
 
 	return retval;
@@ -2300,6 +2460,65 @@ static int ipa3_send_sw_flt_list(unsigned long usr_param)
 	IPADBG("No of ifaces: %d, iface-flt enable: %d\n",
 		((struct ipa_sw_flt_list_type *)buff)->num_of_iface,
 		((struct ipa_sw_flt_list_type *)buff)->iface_enable);
+
+	retval = ipa3_send_msg(&msg_meta, buff,
+		ipa3_mac_flt_list_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+		retval,
+		msg_meta.msg_type);
+		kfree(buff);
+		return retval;
+	}
+	return 0;
+}
+
+static int ipa3_send_ippt_sw_flt_list(unsigned long usr_param)
+{
+	int retval;
+	struct ipa_msg_meta msg_meta;
+	struct ipa_ioc_sw_flt_list_type sw_flt_list;
+	void *buff;
+
+	if (copy_from_user(&sw_flt_list, (const void __user *)usr_param,
+		sizeof(struct ipa_ioc_sw_flt_list_type))) {
+		IPAERR("Copy ipa_ioc_sw_flt_list_type failure\n");
+		return -EFAULT;
+	}
+
+	/* Expect ipa_ippt_sw_flt_list_type struct*/
+	if (sw_flt_list.ioctl_data_size !=
+		sizeof(struct ipa_ippt_sw_flt_list_type)) {
+		IPAERR("IPA_IOC_SET_IPPT_SW_FLT size not match(%d,%d)!\n",
+		sw_flt_list.ioctl_data_size,
+		sizeof(struct ipa_ippt_sw_flt_list_type));
+		return -EFAULT;
+	}
+
+	buff = kzalloc(sizeof(struct ipa_ippt_sw_flt_list_type),
+				GFP_KERNEL);
+	if (!buff) {
+		IPAERR("ipa_ippt_sw_flt_list_type mem-allocate failure\n");
+		return -ENOMEM;
+	}
+
+	if (copy_from_user(buff, u64_to_user_ptr(sw_flt_list.ioctl_ptr),
+		sizeof(struct ipa_ippt_sw_flt_list_type))) {
+		IPAERR("Failed to copy ipa_ippt_sw_flt_list_type\n");
+		kfree(buff);
+		return -EFAULT;
+	}
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = IPA_IPPT_SW_FLT_EVENT;
+	msg_meta.msg_len = sizeof(struct ipa_ippt_sw_flt_list_type);
+
+	IPADBG("Num of ipv4: %d, ipv4 enable: %d \n",
+		((struct ipa_ippt_sw_flt_list_type *)buff)->num_of_ipv4,
+		((struct ipa_ippt_sw_flt_list_type *)buff)->ipv4_enable);
+
+	IPADBG("Num of ports: %d, port enable: %d\n",
+		((struct ipa_ippt_sw_flt_list_type *)buff)->num_of_port,
+		((struct ipa_ippt_sw_flt_list_type *)buff)->port_enable);
 
 	retval = ipa3_send_msg(&msg_meta, buff,
 		ipa3_mac_flt_list_free_cb);
@@ -3568,13 +3787,17 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 
-	case IPA_IOC_GET_PHERIPHERAL_EP_INFO:
-		IPADBG("Got IPA_IOC_GET_EP_INFO\n");
-		if (ipa3_ctx->ipa_config_is_auto == false) {
-			IPADBG("not an auto config: returning error\n");
-			retval = -ENOTTY;
+	case IPA_IOC_SET_IPPT_SW_FLT:
+		IPADBG("Got IPA_IOC_SET_IPPT_SW_FLT\n");
+		if (ipa3_send_ippt_sw_flt_list(arg)) {
+			retval = -EFAULT;
 			break;
 		}
+		break;
+
+	case IPA_IOC_GET_PHERIPHERAL_EP_INFO:
+		IPADBG("Got IPA_IOC_GET_EP_INFO\n");
+		/* used in IPA4.X AUTO and IPA5.0 MDM onwards */
 		if (copy_from_user(&ep_info, (const void __user *)arg,
 			sizeof(struct ipa_ioc_get_ep_info))) {
 			IPAERR_RL("copy_from_user fails\n");
@@ -6756,7 +6979,6 @@ static int ipa3_panic_notifier(struct notifier_block *this,
 	{
 		if (ipa3_ctx->is_device_crashed)
 			return NOTIFY_DONE;
-		ipa3_ctx->is_device_crashed = true;
 	}
 
 	ipa3_freeze_clock_vote_and_notify_modem();
@@ -7378,6 +7600,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	else
 		IPADBG(":stats init ok\n");
 
+	/* 1st ipa3_panic_notifier*/
 	ipa3_register_panic_hdlr();
 
 	ipa3_debugfs_init();
@@ -7407,6 +7630,9 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		!ipa3_ctx->gsi_msi_clear_addr_io_mapped &&
 		(ipa3_ctx->rmnet_ll_enable || ipa3_ctx->rmnet_ctl_enable))
 			ipa_gsi_map_unmap_gsi_msi_addr(true);
+
+	if(!ipa_spearhead_stats_init())
+		IPADBG("Fail to init spearhead ipa lnx module");
 
 	pr_info("IPA driver initialization was successful.\n");
 

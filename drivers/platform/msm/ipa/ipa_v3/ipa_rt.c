@@ -337,7 +337,6 @@ static int ipa_prep_rt_tbl_for_cmt(enum ipa_ip_type ip,
 
 	if ((tbl->sz[IPA_RULE_HASHABLE] +
 		tbl->sz[IPA_RULE_NON_HASHABLE]) == 0) {
-		WARN_ON_RATELIMIT_IPA(1);
 		IPAERR_RL("rt tbl %s is with zero total size\n", tbl->name);
 	}
 
@@ -1477,12 +1476,14 @@ bail:
  * ipa3_add_rt_rule_ext_v2() - Add the specified routing rules
  * to SW with rule id and optionally commit to IPA HW
  * @rules:	[inout] set of routing rules to add
+ * @user: [in] true if the rt rules are added from userspace
  *
  * Returns:	0 on success, negative on failure
  *
  * Note:	Should not be called from atomic context
  */
-int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules)
+int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules,
+	bool user)
 {
 	int i;
 	int ret;
@@ -1506,7 +1507,7 @@ int ipa3_add_rt_rule_ext_v2(struct ipa_ioc_add_rt_rule_ext_v2 *rules)
 					&(((struct ipa_rt_rule_add_ext_i *)
 					rules->rules)[i].rt_rule_hdl),
 					((struct ipa_rt_rule_add_ext_i *)
-					rules->rules)[i].rule_id, true)) {
+					rules->rules)[i].rule_id, user)) {
 			IPAERR_RL("failed to add rt rule %d\n", i);
 			((struct ipa_rt_rule_add_ext_i *)
 			rules->rules)[i].status = IPA_RT_STATUS_OF_ADD_FAILED;
