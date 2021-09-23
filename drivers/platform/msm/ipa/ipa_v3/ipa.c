@@ -732,6 +732,7 @@ static void ipa3_active_clients_log_destroy(void)
 	kfree(active_clients_table_buf);
 	active_clients_table_buf = NULL;
 	kfree(ipa3_ctx->ipa3_active_clients_logging.log_buffer[0]);
+	ipa3_ctx->ipa3_active_clients_logging.log_buffer[0] = NULL;
 	ipa3_ctx->ipa3_active_clients_logging.log_head = 0;
 	ipa3_ctx->ipa3_active_clients_logging.log_tail =
 			IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES - 1;
@@ -1223,6 +1224,73 @@ static void ipa3_get_pcie_ep_info(
 	}
 }
 
+static void ipa3_get_eth_ep_info(
+	struct ipa_ioc_get_ep_info *ep_info,
+	struct ipa_ep_pair_info *pair_info
+	)
+{
+	int ep_index = -1, i;
+
+	ep_info->num_ep_pairs = 0;
+	for (i = 0; i < ep_info->max_ep_pairs; i++) {
+		pair_info[i].consumer_pipe_num = -1;
+		pair_info[i].producer_pipe_num = -1;
+		pair_info[i].ep_id = -1;
+	}
+
+	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_PROD);
+
+	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET2_CONS);
+		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+				ep_index;
+			pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_ETH1_EP_ID;
+		IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+			ep_info->num_ep_pairs++;
+		} else {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+		}
+	}
+
+	ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_PROD);
+
+	if ((ep_index != -1) && ipa3_ctx->ep[ep_index].valid) {
+		pair_info[ep_info->num_ep_pairs].consumer_pipe_num = ep_index;
+		ep_index = ipa3_get_ep_mapping(IPA_CLIENT_ETHERNET_CONS);
+		if ((ep_index != -1) && (ipa3_ctx->ep[ep_index].valid)) {
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num =
+				ep_index;
+			pair_info[ep_info->num_ep_pairs].ep_id =
+				IPA_ETH0_EP_ID;
+
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+			ep_info->num_ep_pairs++;
+		} else {
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num = -1;
+			IPADBG("ep_pair_info consumer_pipe_num %d",
+			pair_info[ep_info->num_ep_pairs].consumer_pipe_num);
+			IPADBG(" producer_pipe_num %d ep_id %d\n",
+			pair_info[ep_info->num_ep_pairs].producer_pipe_num,
+				pair_info[ep_info->num_ep_pairs].ep_id);
+		}
+	}
+}
 
 static int ipa3_get_ep_info(struct ipa_ioc_get_ep_info *ep_info,
 							u8 *param)
@@ -1237,6 +1305,10 @@ static int ipa3_get_ep_info(struct ipa_ioc_get_ep_info *ep_info,
 
 	case IPA_DATA_EP_TYP_PCIE:
 		ipa3_get_pcie_ep_info(ep_info, pair_info);
+		break;
+
+	case IPA_DATA_EP_TYP_ETH:
+		ipa3_get_eth_ep_info(ep_info, pair_info);
 		break;
 
 	default:
@@ -3920,7 +3992,13 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		break;
-
+#ifdef IPA_IOC_FLT_MEM_PERIPHERAL_SET_PRIO_HIGH
+	case IPA_IOC_FLT_MEM_PERIPHERAL_SET_PRIO_HIGH:
+		retval = ipa_flt_sram_set_client_prio_high((enum ipa_client_type) arg);
+		if (retval)
+			IPAERR("ipa_flt_sram_set_client_prio_high failed! retval=%d\n", retval);
+		break;
+#endif
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -ENOTTY;
@@ -6994,8 +7072,8 @@ static int ipa3_panic_notifier(struct notifier_block *this,
 	if (res) {
 		IPAERR("IPA clk off not saving the IPA registers\n");
 	} else {
-		ipahal_print_all_regs(false);
 		ipa_save_registers();
+		ipahal_print_all_regs(false);
 		ipa_wigig_save_regs();
 	}
 
@@ -7271,9 +7349,11 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	struct gsi_per_props gsi_props;
 	struct ipa3_uc_hdlrs uc_hdlrs = { 0 };
 	struct ipa3_flt_tbl *flt_tbl;
+	struct ipa3_flt_tbl_nhash_lcl *lcl_tbl;
 	int i;
 	struct idr *idr;
 	bool reg = false;
+	enum ipa_ip_type ip;
 
 	if (ipa3_ctx == NULL) {
 		IPADBG("IPA driver haven't initialized\n");
@@ -7329,18 +7409,18 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 		ipa3_ctx->smem_sz, ipa3_ctx->smem_restricted_bytes);
 
 	IPADBG("ip4_rt_hash=%u ip4_rt_nonhash=%u\n",
-		ipa3_ctx->ip4_rt_tbl_hash_lcl, ipa3_ctx->ip4_rt_tbl_nhash_lcl);
+		ipa3_ctx->rt_tbl_hash_lcl[IPA_IP_v4], ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v4]);
 
 	IPADBG("ip6_rt_hash=%u ip6_rt_nonhash=%u\n",
-		ipa3_ctx->ip6_rt_tbl_hash_lcl, ipa3_ctx->ip6_rt_tbl_nhash_lcl);
+		ipa3_ctx->rt_tbl_hash_lcl[IPA_IP_v6], ipa3_ctx->rt_tbl_nhash_lcl[IPA_IP_v6]);
 
 	IPADBG("ip4_flt_hash=%u ip4_flt_nonhash=%u\n",
-		ipa3_ctx->ip4_flt_tbl_hash_lcl,
-		ipa3_ctx->ip4_flt_tbl_nhash_lcl);
+		ipa3_ctx->flt_tbl_hash_lcl[IPA_IP_v4],
+		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v4]);
 
 	IPADBG("ip6_flt_hash=%u ip6_flt_nonhash=%u\n",
-		ipa3_ctx->ip6_flt_tbl_hash_lcl,
-		ipa3_ctx->ip6_flt_tbl_nhash_lcl);
+		ipa3_ctx->flt_tbl_hash_lcl[IPA_IP_v6],
+		ipa3_ctx->flt_tbl_nhash_lcl[IPA_IP_v6]);
 
 	if (ipa3_ctx->smem_reqd_sz > ipa3_ctx->smem_sz) {
 		IPAERR("SW expect more core memory, needed %d, avail %d\n",
@@ -7399,56 +7479,51 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	/* Assign resource limitation to each group */
 	ipa3_set_resorce_groups_min_max_limits();
 
+	/* Initialize general resource group parameters */
+	ipa3_set_resorce_groups_config();
+
 	idr = &(ipa3_ctx->flt_rule_ids[IPA_IP_v4]);
 	idr_init(idr);
 	idr = &(ipa3_ctx->flt_rule_ids[IPA_IP_v6]);
 	idr_init(idr);
 
+	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v4]);
+	INIT_LIST_HEAD(&ipa3_ctx->flt_tbl_nhash_lcl_list[IPA_IP_v6]);
+
 	for (i = 0; i < ipa3_ctx->ipa_num_pipes; i++) {
 		if (!ipa_is_ep_support_flt(i))
 			continue;
 
-		flt_tbl = &ipa3_ctx->flt_tbl[i][IPA_IP_v4];
-		INIT_LIST_HEAD(&flt_tbl->head_flt_rule_list);
-		flt_tbl->in_sys[IPA_RULE_HASHABLE] =
-			!ipa3_ctx->ip4_flt_tbl_hash_lcl;
+		for (ip = IPA_IP_v4; ip < IPA_IP_MAX; ip++) {
+			flt_tbl = &ipa3_ctx->flt_tbl[i][ip];
+			INIT_LIST_HEAD(&flt_tbl->head_flt_rule_list);
+			flt_tbl->in_sys[IPA_RULE_HASHABLE] = !ipa3_ctx->flt_tbl_hash_lcl[ip];
 
-		/*	For ETH client place Non-Hash FLT table in SRAM if allowed, for
-			all other EPs always place the table in DDR */
-		if (IPA_CLIENT_IS_ETH_PROD(i) ||
-			((ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST) &&
-			(i == ipa3_get_ep_mapping(IPA_CLIENT_TEST_PROD))))
-			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] =
-			!ipa3_ctx->ip4_flt_tbl_nhash_lcl;
-		else
-			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = true;
+			/*	For ETH client place Non-Hash FLT table in SRAM if allowed, for
+				all other EPs always place the table in DDR */
+			if (ipa3_ctx->flt_tbl_nhash_lcl[ip] &&
+			    (IPA_CLIENT_IS_ETH_PROD(i) ||
+			     ((ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST) &&
+			      (i == ipa3_get_ep_mapping(IPA_CLIENT_TEST_PROD))))) {
+				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = false;
+				lcl_tbl = kcalloc(1, sizeof(struct ipa3_flt_tbl_nhash_lcl),
+						  GFP_KERNEL);
+				WARN_ON(lcl_tbl);
+				if (likely(lcl_tbl)) {
+					lcl_tbl->tbl = flt_tbl;
+					/* Add to the head of the list, to be pulled first */
+					list_add(&lcl_tbl->link,
+						 &ipa3_ctx->flt_tbl_nhash_lcl_list[ip]);
+				}
+			} else
+				flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = true;
 
-		/* Init force sys to false */
-		flt_tbl->force_sys[IPA_RULE_HASHABLE] = false;
-		flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] = false;
+			/* Init force sys to false */
+			flt_tbl->force_sys[IPA_RULE_HASHABLE] = false;
+			flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] = false;
 
-		flt_tbl->rule_ids = &ipa3_ctx->flt_rule_ids[IPA_IP_v4];
-
-		flt_tbl = &ipa3_ctx->flt_tbl[i][IPA_IP_v6];
-		INIT_LIST_HEAD(&flt_tbl->head_flt_rule_list);
-		flt_tbl->in_sys[IPA_RULE_HASHABLE] =
-			!ipa3_ctx->ip6_flt_tbl_hash_lcl;
-
-		/*	For ETH client place Non-Hash FLT table in SRAM if allowed, for
-			all other EPs always place the table in DDR */
-		if (IPA_CLIENT_IS_ETH_PROD(i) ||
-			((ipa3_ctx->ipa3_hw_mode == IPA_HW_MODE_TEST) &&
-			(i == ipa3_get_ep_mapping(IPA_CLIENT_TEST_PROD))))
-			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] =
-			!ipa3_ctx->ip6_flt_tbl_nhash_lcl;
-		else
-			flt_tbl->in_sys[IPA_RULE_NON_HASHABLE] = true;
-
-		/* Init force sys to false */
-		flt_tbl->force_sys[IPA_RULE_HASHABLE] = false;
-		flt_tbl->force_sys[IPA_RULE_NON_HASHABLE] = false;
-
-		flt_tbl->rule_ids = &ipa3_ctx->flt_rule_ids[IPA_IP_v6];
+			flt_tbl->rule_ids = &ipa3_ctx->flt_rule_ids[ip];
+		}
 	}
 
 	if (!ipa3_ctx->apply_rg10_wa) {
@@ -8013,13 +8088,25 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 	if (ipa3_ctx->platform_type == IPA_PLAT_TYPE_MDM) {
 
 		if (strnstr(dbg_buff, "vlan", strlen(dbg_buff))) {
-			if (strnstr(dbg_buff, "eth", strlen(dbg_buff)))
+			if (strnstr(dbg_buff, STR_ETH_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] =
 				true;
-			if (strnstr(dbg_buff, "rndis", strlen(dbg_buff)))
+#if IPA_ETH_API_VER >= 2
+			/* In Dual NIC mode we get "vlan: eth [eth0|eth1] [eth0|eth1]?" while device name is
+			   "eth0" in legacy so, we set it to false to diffrentiate Dual NIC from legacy */
+			if (strnstr(dbg_buff, STR_ETH0_IFACE, strlen(dbg_buff))) {
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH0] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = false;
+			}
+			if (strnstr(dbg_buff, STR_ETH1_IFACE, strlen(dbg_buff))){
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ETH1] = true;
+				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_EMAC] = false;
+			}
+#endif
+			if (strnstr(dbg_buff, STR_RNDIS_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS] =
 				true;
-			if (strnstr(dbg_buff, "ecm", strlen(dbg_buff)))
+			if (strnstr(dbg_buff, STR_ECM_IFACE, strlen(dbg_buff)))
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM] =
 				true;
 
@@ -8825,6 +8912,13 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 		result = -ENOMEM;
 		goto fail_hdr_offset_cache;
 	}
+	ipa3_ctx->fnr_stats_cache = kmem_cache_create("IPA_FNR_STATS",
+		sizeof(struct ipa_ioc_flt_rt_counter_alloc), 0, 0, NULL);
+	if (!ipa3_ctx->fnr_stats_cache) {
+		IPAERR(":ipa fnr stats cache create failed\n");
+		result = -ENOMEM;
+		goto fail_fnr_stats_cache;
+	}
 	ipa3_ctx->hdr_proc_ctx_cache = kmem_cache_create("IPA_HDR_PROC_CTX",
 		sizeof(struct ipa3_hdr_proc_ctx_entry), 0, 0, NULL);
 	if (!ipa3_ctx->hdr_proc_ctx_cache) {
@@ -9091,6 +9185,8 @@ fail_rt_tbl_cache:
 fail_hdr_proc_ctx_offset_cache:
 	kmem_cache_destroy(ipa3_ctx->hdr_proc_ctx_cache);
 fail_hdr_proc_ctx_cache:
+	kmem_cache_destroy(ipa3_ctx->fnr_stats_cache);
+fail_fnr_stats_cache:
 	kmem_cache_destroy(ipa3_ctx->hdr_offset_cache);
 fail_hdr_offset_cache:
 	kmem_cache_destroy(ipa3_ctx->hdr_cache);
@@ -9124,13 +9220,16 @@ fail_bus_reg:
 fail_init_mem_partition:
 fail_bind:
 	kfree(ipa3_ctx->ctrl);
+	ipa3_ctx->ctrl = NULL;
 fail_mem_ctrl:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
+	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
 	if (ipa3_ctx->logbuf)
 		ipc_log_context_destroy(ipa3_ctx->logbuf);
 fail_uc_file_alloc:
 	kfree(ipa3_ctx->gsi_fw_file_name);
+	ipa3_ctx->gsi_fw_file_name = NULL;
 fail_gsi_file_alloc:
 fail_mem_ctx:
 	return result;
@@ -9934,6 +10033,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 			IPAERR("failed to read register addresses\n");
 			kfree(ipa_tz_unlock_reg);
 			kfree(ipa_drv_res->ipa_tz_unlock_reg);
+			ipa_drv_res->ipa_tz_unlock_reg = NULL;
 			return -EFAULT;
 		}
 
