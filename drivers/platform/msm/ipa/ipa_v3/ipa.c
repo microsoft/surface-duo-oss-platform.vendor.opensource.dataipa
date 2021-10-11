@@ -4329,16 +4329,19 @@ static void ipa3_q6_avoid_holb(void)
 			 * setting HOLB on Q6 pipes, and from APPS perspective
 			 * they are not valid, therefore, the above function
 			 * will fail.
+			 * Also don't reset the HOLB timer to 0 for Q6 pipes.
 			 */
-			ipahal_write_reg_n_fields(
-				IPA_ENDP_INIT_HOL_BLOCK_TIMER_n,
-				ep_idx, &ep_holb);
+
+
+
 			ipahal_write_reg_n_fields(
 				IPA_ENDP_INIT_HOL_BLOCK_EN_n,
 				ep_idx, &ep_holb);
 
-			/* IPA4.5 issue requires HOLB_EN to be written twice */
-			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_5)
+			/* For targets > IPA_4.0 issue requires HOLB_EN to
+			 * be written twice.
+			 */
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
 				ipahal_write_reg_n_fields(
 					IPA_ENDP_INIT_HOL_BLOCK_EN_n,
 					ep_idx, &ep_holb);
@@ -9596,19 +9599,31 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	IPADBG(": WDI-2.0 over gsi= %s\n",
 			ipa_drv_res->ipa_wdi2_over_gsi
 			? "True" : "False");
+
 	ipa_drv_res->ipa_endp_delay_wa =
-			of_property_read_bool(pdev->dev.of_node,
-			"qcom,ipa-endp-delay-wa");
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,ipa-endp-delay-wa");
 	IPADBG(": endppoint delay wa = %s\n",
-			ipa_drv_res->ipa_endp_delay_wa
-			? "True" : "False");
+		ipa_drv_res->ipa_endp_delay_wa
+		? "True" : "False");
 
 	ipa_drv_res->ipa_endp_delay_wa_v2 =
-			of_property_read_bool(pdev->dev.of_node,
-			"qcom,ipa-endp-delay-wa-v2");
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,ipa-endp-delay-wa-v2");
 	IPADBG(": endppoint delay wa v2 = %s\n",
-			ipa_drv_res->ipa_endp_delay_wa_v2
-			? "True" : "False");
+		ipa_drv_res->ipa_endp_delay_wa_v2
+		? "True" : "False");
+
+	/**
+	 * Overwrite end point delay workaround for
+	 * APQ target as device tree is same
+	 * for MSM and APQ
+	 */
+	if (ipa_drv_res->platform_type == IPA_PLAT_TYPE_APQ) {
+		ipa_drv_res->ipa_endp_delay_wa = true;
+		ipa_drv_res->ipa_endp_delay_wa_v2 = false;
+	}
+
 
 	ipa_drv_res->ulso_wa = of_property_read_bool(pdev->dev.of_node,
 			"qcom,ipa-ulso-wa");
